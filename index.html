@@ -24,6 +24,15 @@
 
     document.body.appendChild(VRButton.createButton(renderer));
 
+    // Controlador VR
+    let controller = null;
+    let speed = 0.1;
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      controller = renderer.xr.getController(0); // Controlador principal
+      scene.add(controller);
+    });
+
     // Suelo
     const planeGeometry = new THREE.PlaneGeometry(10, 10);
     const planeMaterial = new THREE.MeshStandardMaterial({ color: 0x7BC8A4 });
@@ -51,7 +60,7 @@
     const cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
     const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x4287f5 });
     const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
-    cube.position.set(2, 1, -3); // Colocar el cubo en la escena
+    cube.position.set(2, 1, -3);
     scene.add(cube);
 
     // Animación de la esfera
@@ -61,9 +70,38 @@
       sphere.position.y = 1.5 + Math.sin(angle) * 0.5;
     }
 
+    // Movimiento del usuario
+    function moveUser(delta) {
+      if (!controller) return;
+
+      const session = renderer.xr.getSession();
+      const inputSources = session.inputSources;
+
+      inputSources.forEach((inputSource) => {
+        if (inputSource.gamepad) {
+          const [xAxis, zAxis] = inputSource.gamepad.axes;
+          const direction = new THREE.Vector3();
+
+          camera.getWorldDirection(direction);
+          direction.y = 0; // Evitar que el movimiento incline la vista
+          direction.normalize();
+
+          // Movimiento hacia adelante/atrás (zAxis) y lateral (xAxis)
+          const moveForward = direction.clone().multiplyScalar(-zAxis * speed * delta);
+          const moveSideways = new THREE.Vector3(direction.z, 0, -direction.x).multiplyScalar(xAxis * speed * delta);
+
+          camera.position.add(moveForward).add(moveSideways);
+        }
+      });
+    }
+
     // Animación principal
+    let clock = new THREE.Clock();
+
     function animate() {
       renderer.setAnimationLoop(() => {
+        const delta = clock.getDelta();
+        moveUser(delta); // Mover al usuario basado en controles
         animateSphere();
         renderer.render(scene, camera);
       });
