@@ -40,7 +40,7 @@
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
 
-    // Esferas
+    // Esfera animada
     const sphereGeometry1 = new THREE.SphereGeometry(0.5, 32, 32);
     const sphereMaterial1 = new THREE.MeshStandardMaterial({ color: 0xEF2D5E });
     const sphere1 = new THREE.Mesh(sphereGeometry1, sphereMaterial1);
@@ -67,7 +67,7 @@
     controller1.addEventListener('selectstart', () => interactWithCube(controller1));
     controller2.addEventListener('selectstart', () => interactWithCube(controller2));
 
-    // Función para interactuar con el cubo
+    // Interacción con el cubo
     function interactWithCube(controller) {
       tempMatrix.identity().extractRotation(controller.matrixWorld);
 
@@ -87,23 +87,40 @@
       sphere1.position.y = 1.5 + Math.sin(angle) * 0.5;
     }
 
-    // Movimiento del usuario (VR y PC)
+    // Movimiento con controladores (Meta Quest)
+    function moveWithController(delta) {
+      const session = renderer.xr.getSession();
+      if (!session) return;
+
+      session.inputSources.forEach((inputSource) => {
+        if (inputSource.gamepad) {
+          const [xAxis, zAxis] = inputSource.gamepad.axes;
+          const direction = new THREE.Vector3();
+
+          camera.getWorldDirection(direction);
+          direction.y = 0; // Restringe movimiento vertical
+          direction.normalize();
+
+          // Movimiento basado en los ejes del stick izquierdo
+          const moveForward = direction.clone().multiplyScalar(-zAxis * delta * 2);
+          const moveSideways = new THREE.Vector3(direction.z, 0, -direction.x).multiplyScalar(xAxis * delta * 2);
+          camera.position.add(moveForward).add(moveSideways);
+        }
+      });
+    }
+
+    // Movimiento con teclado (PC)
     const keys = { w: false, a: false, s: false, d: false };
 
-    function moveUser(delta) {
-      const direction = new THREE.Vector3();
+    function moveWithKeyboard(delta) {
       const velocity = new THREE.Vector3();
 
-      // Movimiento con teclado (PC)
       if (keys.w) velocity.z -= delta * 2;
       if (keys.s) velocity.z += delta * 2;
       if (keys.a) velocity.x -= delta * 2;
       if (keys.d) velocity.x += delta * 2;
 
-      // Aplicar el movimiento
       camera.position.add(velocity);
-
-      // Controladores VR no afectan la posición del usuario en este ejemplo.
     }
 
     // Eventos de teclado
@@ -116,7 +133,8 @@
     function animate() {
       renderer.setAnimationLoop(() => {
         const delta = clock.getDelta();
-        moveUser(delta);
+        moveWithController(delta); // Movimiento con controladores VR
+        moveWithKeyboard(delta); // Movimiento con teclado
         animateSpheres();
         renderer.render(scene, camera);
       });
