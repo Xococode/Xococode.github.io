@@ -47,103 +47,71 @@
     sphere1.position.set(0, 1.5, -2);
     scene.add(sphere1);
 
-    const sphereGeometry2 = new THREE.SphereGeometry(0.5, 32, 32);
-    const sphereMaterial2 = new THREE.MeshStandardMaterial({ color: 0x4CAF50 });
-    const sphere2 = new THREE.Mesh(sphereGeometry2, sphereMaterial2);
-    sphere2.position.set(-2, 1.5, -2);
-    scene.add(sphere2);
-
-    // Cubo no interactivo
-    const cubeGeometry1 = new THREE.BoxGeometry(1, 1, 1);
-    const cubeMaterial1 = new THREE.MeshStandardMaterial({ color: 0x4287f5 });
-    const cube1 = new THREE.Mesh(cubeGeometry1, cubeMaterial1);
-    cube1.position.set(2, 1, -3);
-    scene.add(cube1);
-
     // Cubo interactivo
-    const cubeGeometry2 = new THREE.BoxGeometry(1, 1, 1);
-    const cubeMaterial2 = new THREE.MeshStandardMaterial({ color: 0xffd700 });
-    const interactiveCube = new THREE.Mesh(cubeGeometry2, cubeMaterial2);
+    const cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+    const interactiveCube = new THREE.Mesh(cubeGeometry, cubeMaterial);
     interactiveCube.position.set(0, 1, -5);
     scene.add(interactiveCube);
 
-    // Animación de las esferas
+    // Raycaster para interacciones
+    const raycaster = new THREE.Raycaster();
+    const tempMatrix = new THREE.Matrix4();
+
+    // Controladores VR
+    const controller1 = renderer.xr.getController(0);
+    const controller2 = renderer.xr.getController(1);
+    scene.add(controller1);
+    scene.add(controller2);
+
+    controller1.addEventListener('selectstart', () => interactWithCube(controller1));
+    controller2.addEventListener('selectstart', () => interactWithCube(controller2));
+
+    // Función para interactuar con el cubo
+    function interactWithCube(controller) {
+      tempMatrix.identity().extractRotation(controller.matrixWorld);
+
+      raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+      raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+      const intersects = raycaster.intersectObject(interactiveCube);
+      if (intersects.length > 0) {
+        interactiveCube.material.color.setHex(Math.random() * 0xffffff);
+      }
+    }
+
+    // Animación de la esfera
     let angle = 0;
     function animateSpheres() {
       angle += 0.01;
       sphere1.position.y = 1.5 + Math.sin(angle) * 0.5;
-      sphere2.position.y = 1.5 + Math.cos(angle) * 0.5;
     }
 
     // Movimiento del usuario (VR y PC)
-    let controller = null;
-    let speed = 0.1;
     const keys = { w: false, a: false, s: false, d: false };
 
-    renderer.xr.addEventListener('sessionstart', () => {
-      controller = renderer.xr.getController(0);
-      scene.add(controller);
-    });
-
     function moveUser(delta) {
-      // Movimiento con controles VR
-      if (controller) {
-        const session = renderer.xr.getSession();
-        const inputSources = session.inputSources;
-
-        inputSources.forEach((inputSource) => {
-          if (inputSource.gamepad) {
-            const [xAxis, zAxis] = inputSource.gamepad.axes;
-            const direction = new THREE.Vector3();
-            camera.getWorldDirection(direction);
-            direction.y = 0;
-            direction.normalize();
-
-            const moveForward = direction.clone().multiplyScalar(-zAxis * speed * delta);
-            const moveSideways = new THREE.Vector3(direction.z, 0, -direction.x).multiplyScalar(xAxis * speed * delta);
-            camera.position.add(moveForward).add(moveSideways);
-          }
-        });
-      }
+      const direction = new THREE.Vector3();
+      const velocity = new THREE.Vector3();
 
       // Movimiento con teclado (PC)
-      const direction = new THREE.Vector3();
-      if (keys.w) direction.z -= speed * delta;
-      if (keys.s) direction.z += speed * delta;
-      if (keys.a) direction.x -= speed * delta;
-      if (keys.d) direction.x += speed * delta;
+      if (keys.w) velocity.z -= delta * 2;
+      if (keys.s) velocity.z += delta * 2;
+      if (keys.a) velocity.x -= delta * 2;
+      if (keys.d) velocity.x += delta * 2;
 
-      camera.position.add(direction);
+      // Aplicar el movimiento
+      camera.position.add(velocity);
+
+      // Controladores VR no afectan la posición del usuario en este ejemplo.
     }
 
-    // Evento de teclado
-    window.addEventListener('keydown', (e) => { if (keys[e.key] !== undefined) keys[e.key] = true; });
-    window.addEventListener('keyup', (e) => { if (keys[e.key] !== undefined) keys[e.key] = false; });
-
-    // Interactividad con el cubo
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
-    function onPointerDown(event) {
-      // Obtener posición del mouse
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-      // Lanzar un rayo desde la cámara hacia la escena
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects([interactiveCube]);
-
-      if (intersects.length > 0) {
-        // Cambiar color del cubo al azar
-        const newColor = Math.random() * 0xffffff;
-        interactiveCube.material.color.set(newColor);
-      }
-    }
-
-    window.addEventListener('pointerdown', onPointerDown);
+    // Eventos de teclado
+    window.addEventListener('keydown', (event) => { if (keys[event.key] !== undefined) keys[event.key] = true; });
+    window.addEventListener('keyup', (event) => { if (keys[event.key] !== undefined) keys[event.key] = false; });
 
     // Animación principal
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     function animate() {
       renderer.setAnimationLoop(() => {
