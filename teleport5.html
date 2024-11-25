@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <title>three.js VR - Teleport y Manipulación de Objetos Mejorada</title>
+    <title>three.js VR - Teleport y Manipulación de Objetos con Gizmos</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
@@ -27,12 +27,28 @@
         a:hover {
             text-decoration: underline;
         }
+        /* Estilo para instrucciones de teclado */
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Manipulación de Objetos Mejorada
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Manipulación de Objetos con Gizmos
+    </div>
+
+    <div id="instructions">
+        <strong>Instrucciones:</strong> Selecciona un objeto y presiona <strong>A</strong> para trasladar, <strong>B</strong> para rotar y <strong>X</strong> para escalar.
     </div>
 
     <!-- Import Map -->
@@ -59,6 +75,7 @@
         import { VRButton } from 'three/addons/webxr/VRButton.js';
         import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
         // Variables globales
         let camera, scene, renderer;
@@ -88,6 +105,9 @@
 
         // Audio
         let listener, pickSound;
+
+        // TransformControls
+        let transformControls;
 
         init();
         animate();
@@ -133,6 +153,15 @@
 
             // Inicializar audio
             initAudio();
+
+            // Configurar TransformControls
+            setupTransformControls();
+
+            // Configurar eventos de teclado
+            setupKeyboardControls();
+
+            // Configurar controles de ratón para modo escritorio
+            setupMouseControls();
 
             // Manejar el redimensionamiento de la ventana
             window.addEventListener('resize', onWindowResize);
@@ -191,7 +220,7 @@
         function loadModel() {
             const loader = new GLTFLoader();
             loader.load(
-                'https://xococode.github.io/BoomBox.glb',
+                'https://xococode.github.io/BoomBox.glb', // URL del modelo GLB
                 (gltf) => {
                     boomBox = gltf.scene;
                     boomBox.scale.set(20, 20, 20); // Ajustar escala según sea necesario
@@ -204,7 +233,7 @@
                     });
                     scene.add(boomBox);
                     selectableObjects.push(boomBox);
-                    
+
                     // Crear cuerpo físico para el boomBox
                     const bbox = new THREE.Box3().setFromObject(boomBox);
                     const size = new THREE.Vector3();
@@ -380,6 +409,9 @@
                     if (intersectionPlane.intersectRay(raycaster.ray, intersectionPoint)) {
                         offset.copy(intersectionPoint).sub(selectedObject.position);
                     }
+
+                    // Adjuntar TransformControls al objeto seleccionado
+                    transformControls.attach(selectedObject);
                 }
             }
         }
@@ -390,6 +422,9 @@
                 // Restaurar el material original
                 selectedObject.material = originalMaterial;
                 selectedObject = null;
+
+                // Desadjuntar TransformControls
+                transformControls.detach();
             }
         }
 
@@ -547,10 +582,107 @@
             // Cargar el sonido
             const audioLoader = new THREE.AudioLoader();
             pickSound = new THREE.Audio(listener);
-            audioLoader.load('https://xococode.github.io/pick-sound.mp3', function(buffer) {
+            audioLoader.load('https://xococode.github.io/pick-sound.mp3', function(buffer) { // URL del sonido
                 pickSound.setBuffer(buffer);
                 pickSound.setVolume(0.5);
             });
+        }
+
+        function setupTransformControls() {
+            transformControls = new TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('dragging-changed', function (event) {
+                renderer.xr.enabled = !event.value;
+            });
+            scene.add(transformControls);
+
+            // Escuchar cambios en TransformControls para actualizar físicas
+            transformControls.addEventListener('objectChange', function () {
+                if (selectedObject) {
+                    const objBody = objectsWithBodies.find(obj => obj.mesh === selectedObject)?.body;
+                    if (objBody) {
+                        objBody.position.copy(selectedObject.position);
+                        objBody.quaternion.copy(selectedObject.quaternion);
+                    }
+                }
+            });
+        }
+
+        function setupKeyboardControls() {
+            window.addEventListener('keydown', function(event) {
+                if (!transformControls.object) return; // No hay objeto seleccionado
+
+                switch(event.key.toLowerCase()) {
+                    case 'a':
+                        transformControls.setMode('translate');
+                        break;
+                    case 'b':
+                        transformControls.setMode('rotate');
+                        break;
+                    case 'x':
+                        transformControls.setMode('scale');
+                        break;
+                }
+            });
+        }
+
+        // Función para seleccionar objetos con el ratón (modo escritorio)
+        function setupMouseControls() {
+            const raycasterMouse = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+
+            window.addEventListener('click', function(event) {
+                // Calcular posición del ratón en normalized device coordinates (-1 to +1) for both components.
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+                raycasterMouse.setFromCamera(mouse, camera);
+
+                const intersects = raycasterMouse.intersectObjects(selectableObjects, true);
+
+                if (intersects.length > 0) {
+                    const intersected = intersects[0].object;
+
+                    // Seleccionar el objeto
+                    selectObject(intersected);
+                } else {
+                    // Deseleccionar si se hace clic en el espacio vacío
+                    deselectObject();
+                }
+            });
+        }
+
+        function selectObject(object) {
+            if (selectedObject === object) return; // Ya está seleccionado
+
+            // Deseleccionar el objeto anterior
+            deselectObject();
+
+            // Seleccionar el nuevo objeto
+            selectedObject = object;
+
+            // Reproducir sonido
+            if (pickSound.isPlaying) pickSound.stop();
+            pickSound.play();
+
+            // Guardar el material original
+            originalMaterial = selectedObject.material;
+
+            // Aplicar material de resaltado
+            selectedObject.material = highlightMaterial;
+
+            // Adjuntar TransformControls al objeto seleccionado
+            transformControls.attach(selectedObject);
+        }
+
+        function deselectObject() {
+            if (selectedObject) {
+                // Restaurar el material original
+                selectedObject.material = originalMaterial;
+                selectedObject = null;
+
+                // Desadjuntar TransformControls
+                transformControls.detach();
+            }
         }
 
     </script>
