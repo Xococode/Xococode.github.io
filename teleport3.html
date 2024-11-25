@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>three.js VR - Teleport, Manipulación de Objetos e Interacciones Avanzadas</title>
+    <title>three.js VR - Teleport y Manipulación de Objetos</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
@@ -25,7 +25,7 @@
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport, Manipulación y Más
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Manipulación de Objetos
     </div>
 
     <!-- Import Map -->
@@ -62,29 +62,19 @@
         let intersectionPlane = new THREE.Plane();
         let intersectionPoint = new THREE.Vector3();
 
+        // Lista de objetos movibles
+        const movableObjects = [];
+
         // Variable para el modelo BoomBox
         let boomBox;
-
-        // Arreglo para almacenar objetos creados con el teclado
-        const createdObjects = [];
-
-        // Variables para gravedad
-        let gravityActive = false;
-        const gravity = new THREE.Vector3(0, -0.01, 0); // Ajusta la fuerza de gravedad según sea necesario
-
-        // Colores disponibles para el suelo
-        const floorColors = [0xbcbcbc, 0xff0000, 0x00ff00, 0x0000ff, 0xffff00];
-        let currentFloorColorIndex = 0;
 
         init();
         animate();
 
         function init() {
-            // Escena
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x505050);
 
-            // Cámara
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.6, 3); // Altura estándar de VR
 
@@ -117,7 +107,6 @@
             );
             scene.add(floor);
 
-            // Raycaster
             raycaster = new THREE.Raycaster();
 
             // Renderizador
@@ -139,8 +128,9 @@
                 function (gltf) {
                     boomBox = gltf.scene;
                     boomBox.scale.set(0.5, 0.5, 0.5); // Ajustar la escala según sea necesario
-                    boomBox.position.set(0, 0, 0);
+                    boomBox.position.set(-1, 0, -1); // Posición inicial
                     scene.add(boomBox);
+                    movableObjects.push(boomBox);
                 },
                 undefined,
                 function (error) {
@@ -148,21 +138,24 @@
                 }
             );
 
+            // Añadir objetos geométricos básicos
+            addBasicGeometries();
+
             // Configurar Controladores
             function onSelectStart() {
                 this.userData.isSelecting = true;
 
                 // Para el controlador derecho (controller2), iniciar la manipulación del objeto
-                if (this === controller2 && boomBox) {
-                    // Raycasting para detectar intersección con el modelo
+                if (this === controller2) {
+                    // Raycasting para detectar intersección con los objetos movibles
                     tempMatrix.identity().extractRotation(this.matrixWorld);
                     raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
                     raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-                    const intersects = raycaster.ray.intersectObject(boomBox, true);
+                    const intersects = raycaster.intersectObjects(movableObjects, true);
 
                     if (intersects.length > 0) {
-                        selectedObject = boomBox;
+                        selectedObject = intersects[0].object.parent; // Asumiendo que los objetos pueden tener hijos
                         // Definir el plano de intersección
                         intersectionPlane.setFromNormalAndCoplanarPoint(
                             new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion),
@@ -193,26 +186,22 @@
                 }
             }
 
-            // Controlador Izquierdo
             controller1 = renderer.xr.getController(0);
             controller1.addEventListener('selectstart', onSelectStart);
             controller1.addEventListener('selectend', onSelectEnd);
             controller1.addEventListener('connected', function (event) {
                 this.add(buildController(event.data));
-                this.userData.handedness = event.data.handedness; // 'left' o 'right'
             });
             controller1.addEventListener('disconnected', function () {
                 this.remove(this.children[0]);
             });
             scene.add(controller1);
 
-            // Controlador Derecho
             controller2 = renderer.xr.getController(1);
             controller2.addEventListener('selectstart', onSelectStart);
             controller2.addEventListener('selectend', onSelectEnd);
             controller2.addEventListener('connected', function (event) {
                 this.add(buildController(event.data));
-                this.userData.handedness = event.data.handedness; // 'left' o 'right'
             });
             controller2.addEventListener('disconnected', function () {
                 this.remove(this.children[0]);
@@ -229,10 +218,41 @@
             controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
             scene.add(controllerGrip2);
 
-            // Eventos de Teclado
-            window.addEventListener('keydown', onKeyDown);
-
             window.addEventListener('resize', onWindowResize);
+        }
+
+        function addBasicGeometries() {
+            // Cubo
+            const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.position.set(1, 0.25, -1);
+            scene.add(cube);
+            movableObjects.push(cube);
+
+            // Cilindro
+            const cylinderGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.7, 32);
+            const cylinderMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+            const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+            cylinder.position.set(-1, 0.35, 1);
+            scene.add(cylinder);
+            movableObjects.push(cylinder);
+
+            // Esfera
+            const sphereGeometry = new THREE.SphereGeometry(0.25, 32, 32);
+            const sphereMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+            const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            sphere.position.set(1.5, 0.25, 1.5);
+            scene.add(sphere);
+            movableObjects.push(sphere);
+
+            // Cono
+            const coneGeometry = new THREE.ConeGeometry(0.3, 0.7, 32);
+            const coneMaterial = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+            const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+            cone.position.set(-1.5, 0.35, -1.5);
+            scene.add(cone);
+            movableObjects.push(cone);
         }
 
         function buildController(data) {
@@ -257,65 +277,6 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function onKeyDown(event) {
-            switch (event.key.toLowerCase()) {
-                case 'b':
-                    createObject('box');
-                    break;
-                case 'a':
-                    createObject('sphere');
-                    break;
-                case 'c':
-                    createObject('cylinder');
-                    break;
-                case 'x':
-                    createObject('cone');
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        function createObject(type) {
-            let geometry;
-            switch (type) {
-                case 'box':
-                    geometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-                    break;
-                case 'sphere':
-                    geometry = new THREE.SphereGeometry(0.2, 32, 32);
-                    break;
-                case 'cylinder':
-                    geometry = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 32);
-                    break;
-                case 'cone':
-                    geometry = new THREE.ConeGeometry(0.2, 0.4, 32);
-                    break;
-                default:
-                    return;
-            }
-
-            const material = new THREE.MeshStandardMaterial({ color: 0xffffff * Math.random() });
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(
-                (Math.random() - 0.5) * 2,
-                1.5,
-                (Math.random() - 0.5) * 2
-            );
-            scene.add(mesh);
-            createdObjects.push({ mesh: mesh, velocity: new THREE.Vector3(0, 0, 0) });
-
-            // Habilitar la manipulación de estos objetos
-            enableObjectInteraction(mesh);
-        }
-
-        function enableObjectInteraction(mesh) {
-            // Agregar interacción similar a BoomBox
-            // Aquí puedes extender la funcionalidad para permitir agarrar y mover estos objetos
-            // Por simplicidad, actualmente solo se pueden manipular el BoomBox
-            // Puedes implementar una lógica similar a la del BoomBox para estos objetos
         }
 
         function animate() {
@@ -362,85 +323,9 @@
                 }
             }
 
-            // Aplicar gravedad si está activada
-            if (gravityActive) {
-                createdObjects.forEach(obj => {
-                    obj.velocity.add(gravity);
-                    obj.mesh.position.add(obj.velocity);
-
-                    // Simple detección de colisión con el suelo
-                    if (obj.mesh.position.y <= 0.15) { // Ajusta según la altura del suelo
-                        obj.mesh.position.y = 0.15;
-                        obj.velocity.set(0, 0, 0);
-                    }
-                });
-            }
-
-            // Rotación de la habitación con el joystick izquierdo
-            rotateRoomWithLeftJoystick();
-
-            // Rotación del BoomBox con el joystick derecho
-            rotateBoomBoxWithRightJoystick();
-
             renderer.render(scene, camera);
         }
-
-        // Funciones para manejar interacciones con los controladores VR
-
-        // Cambiar color del suelo con el Grip Izquierdo
-        function handleLeftGrip() {
-            controllerGrip1.userData.gripPressed = false;
-
-            // Añadir listener para detectar el cambio de estado del grip
-            controllerGrip1.addEventListener('squeezestart', () => {
-                currentFloorColorIndex = (currentFloorColorIndex + 1) % floorColors.length;
-                floor.material.color.setHex(floorColors[currentFloorColorIndex]);
-            });
-        }
-
-        // Activar/Desactivar gravedad con el Grip Derecho
-        function handleRightGrip() {
-            controllerGrip2.userData.gripPressed = false;
-
-            controllerGrip2.addEventListener('squeezestart', () => {
-                gravityActive = !gravityActive;
-            });
-        }
-
-        // Rotar la habitación con el Joystick Izquierdo
-        function rotateRoomWithLeftJoystick() {
-            // Acceder a los inputs del controlador izquierdo
-            const inputSource = controller1.inputSource;
-            if (inputSource && inputSource.gamepad) {
-                const axes = inputSource.gamepad.axes;
-                if (axes.length >= 2) {
-                    const rotationSpeed = 0.02;
-                    room.rotation.y += axes[0] * rotationSpeed;
-                    room.rotation.x += axes[1] * rotationSpeed;
-                }
-            }
-        }
-
-        // Rotar el BoomBox con el Joystick Derecho
-        function rotateBoomBoxWithRightJoystick() {
-            if (!boomBox) return;
-
-            const inputSource = controller2.inputSource;
-            if (inputSource && inputSource.gamepad) {
-                const axes = inputSource.gamepad.axes;
-                if (axes.length >= 2) {
-                    const rotationSpeed = 0.02;
-                    boomBox.rotation.y += axes[0] * rotationSpeed;
-                    boomBox.rotation.x += axes[1] * rotationSpeed;
-                }
-            }
-        }
-
-        // Inicializar manejadores de grip
-        handleLeftGrip();
-        handleRightGrip();
 
     </script>
 </body>
 </html>
-
