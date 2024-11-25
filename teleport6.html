@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Experiencia WebXR con three.js</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>three.js VR - Teleport, Manipulación, Escalado y Rotación de Objetos</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
         body {
             margin: 0;
             overflow: hidden;
-            font-family: Arial, sans-serif;
+            font-family: sans-serif;
         }
         #info {
             position: absolute;
@@ -20,70 +20,77 @@
             background: rgba(0, 0, 0, 0.5);
             padding: 10px 0;
         }
-        #instructions {
-            position: absolute;
-            bottom: 10px;
-            width: 100%;
-            text-align: center;
-            z-index: 100;
-            color: #fff;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 10px 0;
-            font-size: 14px;
+        a {
+            color: #00aaff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> WebXR - Teleportación y Manipulación de Objetos
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport, Manipulación, Escalado y Rotación de Objetos
     </div>
 
-    <div id="instructions">
-        <strong>Instrucciones:</strong> Selecciona un objeto y presiona <strong>A</strong> para trasladar, <strong>B</strong> para rotar y <strong>X</strong> para escalar.
-    </div>
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
 
-    <!-- Importar three.js y addons desde CDN -->
     <script type="module">
-        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
-        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/VRButton.js';
-        import { TransformControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/TransformControls.js';
-        import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/loaders/GLTFLoader.js';
+
+        import * as THREE from 'three';
+
+        import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // Variables globales
         let camera, scene, renderer;
         let controllerTeleport, controllerManipulation;
         let controllerGripTeleport, controllerGripManipulation;
-        let room, marker, floor;
+        let room, marker, floor, baseReferenceSpace;
         let raycaster = new THREE.Raycaster();
         const tempMatrix = new THREE.Matrix4();
 
         // Variables para manipulación de objetos
         let selectedObject = null;
-        let originalMaterial = null;
         let offset = new THREE.Vector3();
         let intersectionPlane = new THREE.Plane();
         let intersectionPoint = new THREE.Vector3();
-        let isRotating = false;
+
+        // Variables para escalado de objetos
+        const SCALE_SPEED = 0.01; // Velocidad de escalado
+        let previousThumbstickValue = 0;
+
+        // Variables para rotación de objetos
+        const ROTATE_SPEED = 0.02; // Velocidad de rotación
+        let previousRotateThumbstickValue = 0;
+
+        // Modelo cargado
+        let boomBox;
 
         // Arreglo para objetos seleccionables
         const selectableObjects = [];
-
-        // TransformControls
-        let transformControls;
-
-        // Audio
-        let listener, pickSound;
 
         init();
         animate();
 
         function init() {
-            // Crear la escena
+            // Configuración de la escena
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x505050);
 
-            // Configurar la cámara
+            // Configuración de la cámara
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.6, 3); // Altura estándar de VR
 
@@ -114,18 +121,6 @@
             // Configurar los controladores
             setupControllers();
 
-            // Inicializar audio
-            initAudio();
-
-            // Configurar TransformControls
-            setupTransformControls();
-
-            // Configurar eventos de teclado
-            setupKeyboardControls();
-
-            // Configurar controles de ratón para modo escritorio
-            setupMouseControls();
-
             // Manejar el redimensionamiento de la ventana
             window.addEventListener('resize', onWindowResize);
         }
@@ -145,7 +140,7 @@
         }
 
         function createRoom() {
-            const roomGeometry = new THREE.BoxLineGeometry(6, 6, 6, 10, 10, 10).translate(0, 3, 0);
+            const roomGeometry = new BoxLineGeometry(6, 6, 6, 10, 10, 10).translate(0, 3, 0);
             const roomMaterial = new THREE.LineBasicMaterial({ color: 0xbcbcbc });
             room = new THREE.LineSegments(roomGeometry, roomMaterial);
             scene.add(room);
@@ -175,7 +170,7 @@
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             renderer.xr.addEventListener('sessionstart', () => {
-                // Puedes realizar acciones al iniciar la sesión VR si es necesario
+                baseReferenceSpace = renderer.xr.getReferenceSpace();
             });
             document.body.appendChild(renderer.domElement);
         }
@@ -183,30 +178,30 @@
         function loadModel() {
             const loader = new GLTFLoader();
             loader.load(
-                'https://threejs.org/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf', // URL del modelo GLTF
+                'https://xococode.github.io/BoomBox.glb',
                 (gltf) => {
-                    const model = gltf.scene;
-                    model.scale.set(2, 2, 2); // Ajustar escala según sea necesario
-                    model.position.set(0, 0, 0);
-                    model.traverse((child) => {
+                    boomBox = gltf.scene;
+                    boomBox.scale.set(20, 20, 20); // Ajustar escala según sea necesario
+                    boomBox.position.set(0, 0, 0);
+                    boomBox.traverse((child) => {
                         if (child.isMesh) {
                             child.castShadow = true;
                             child.receiveShadow = true;
                         }
                     });
-                    scene.add(model);
-                    selectableObjects.push(model);
+                    scene.add(boomBox);
+                    selectableObjects.push(boomBox);
                 },
                 undefined,
                 (error) => {
-                    console.error('Error al cargar el modelo GLTF:', error);
+                    console.error('Error al cargar el modelo GLB:', error);
                 }
             );
         }
 
         function addInteractiveObjects() {
             // Función auxiliar para crear objetos interactivos
-            function createInteractiveObject(geometry, material, position, mass = 1) {
+            function createInteractiveObject(geometry, material, position) {
                 const mesh = new THREE.Mesh(geometry, material);
                 mesh.position.copy(position);
                 mesh.castShadow = true;
@@ -270,11 +265,6 @@
             controllerGripManipulation = renderer.xr.getControllerGrip(1);
             controllerGripManipulation.add(controllerModelFactory.createControllerModel(controllerGripManipulation));
             scene.add(controllerGripManipulation);
-
-            // Añadir eventos para rotación (si utilizas controladores con botones de rotación)
-            // Puedes personalizar estos eventos según tus controladores
-            controllerManipulation.addEventListener('squeezestart', onRotateStart);
-            controllerManipulation.addEventListener('squeezeend', onRotateEnd);
         }
 
         function buildController(data) {
@@ -320,17 +310,6 @@
 
                 if (intersects.length > 0) {
                     selectedObject = intersects[0].object;
-
-                    // Reproducir sonido
-                    if (pickSound.isPlaying) pickSound.stop();
-                    pickSound.play();
-
-                    // Guardar el material original
-                    originalMaterial = selectedObject.material;
-
-                    // Aplicar material de resaltado
-                    selectedObject.material = highlightMaterial;
-
                     // Definir el plano de intersección
                     intersectionPlane.setFromNormalAndCoplanarPoint(
                         new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion),
@@ -340,40 +319,24 @@
                     if (intersectionPlane.intersectRay(raycaster.ray, intersectionPoint)) {
                         offset.copy(intersectionPoint).sub(selectedObject.position);
                     }
-
-                    // Adjuntar TransformControls al objeto seleccionado
-                    transformControls.attach(selectedObject);
                 }
             }
         }
 
         function onManipulationSelectEnd() {
             this.userData.isSelecting = false;
-            if (this === controllerManipulation && selectedObject) {
-                // Restaurar el material original
-                selectedObject.material = originalMaterial;
+            if (this === controllerManipulation) {
                 selectedObject = null;
-
-                // Desadjuntar TransformControls
-                transformControls.detach();
+                previousThumbstickValue = 0; // Reiniciar valor anterior de escalado
+                previousRotateThumbstickValue = 0; // Reiniciar valor anterior de rotación
             }
-        }
-
-        function onRotateStart() {
-            if (selectedObject) {
-                isRotating = true;
-            }
-        }
-
-        function onRotateEnd() {
-            isRotating = false;
         }
 
         function teleportTo(position) {
             const offsetPosition = { x: -position.x, y: -position.y, z: -position.z, w: 1 };
             const offsetRotation = new THREE.Quaternion();
             const transform = new XRRigidTransform(offsetPosition, offsetRotation);
-            const teleportSpaceOffset = renderer.xr.getReferenceSpace().getOffsetReferenceSpace(transform);
+            const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
             renderer.xr.setReferenceSpace(teleportSpaceOffset);
         }
 
@@ -391,11 +354,8 @@
             // Actualizar teletransporte
             updateTeleportation();
 
-            // Actualizar manipulación de objetos
+            // Actualizar manipulación de objetos (incluye escalado y rotación)
             updateObjectManipulation();
-
-            // Actualizar TransformControls
-            TWEEN.update();
 
             renderer.render(scene, camera);
         }
@@ -408,7 +368,7 @@
                 raycaster.ray.origin.setFromMatrixPosition(controllerTeleport.matrixWorld);
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-                const intersects = raycaster.ray.intersectObject(floor);
+                const intersects = raycaster.intersectObject(floor);
                 if (intersects.length > 0) {
                     intersection = intersects[0].point;
                 }
@@ -424,158 +384,42 @@
 
         function updateObjectManipulation() {
             if (selectedObject && controllerManipulation.userData.isSelecting) {
+                // Actualizar la posición del objeto
                 tempMatrix.identity().extractRotation(controllerManipulation.matrixWorld);
                 raycaster.ray.origin.setFromMatrixPosition(controllerManipulation.matrixWorld);
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
                 if (raycaster.ray.intersectPlane(intersectionPlane, intersectionPoint)) {
-                    let targetPosition = intersectionPoint.sub(offset);
-
-                    // Restringir posición dentro de los límites definidos
-                    const min = new THREE.Vector3(-2, 0, -2);
-                    const max = new THREE.Vector3(2, 2, 2);
-                    targetPosition = constrainPosition(targetPosition, min, max);
-
-                    // Movimiento suave usando Tween.js
-                    new TWEEN.Tween(selectedObject.position)
-                        .to({
-                            x: targetPosition.x,
-                            y: targetPosition.y,
-                            z: targetPosition.z
-                        }, 100) // Duración en milisegundos
-                        .easing(TWEEN.Easing.Quadratic.Out)
-                        .start();
-
-                    // Actualizar cuerpo físico si lo tienes integrado (Cannon.js)
-                    // Aquí podrías sincronizar con físicas si estás usando un motor de físicas
+                    selectedObject.position.copy(intersectionPoint.sub(offset));
                 }
 
-                // Rotación
-                if (isRotating && selectedObject) {
-                    const rotationSpeed = 0.05;
-                    selectedObject.rotation.y += rotationSpeed;
+                // Escalado del objeto
+                const gamepad = controllerManipulation.gamepad;
+                if (gamepad && gamepad.axes && gamepad.axes.length > 1) {
+                    const thumbstickY = gamepad.axes[1]; // Eje Y del thumbstick
+                    const thumbstickX = gamepad.axes[0]; // Eje X del thumbstick
 
-                    // Actualizar cuerpo físico si lo tienes integrado (Cannon.js)
-                    // Aquí podrías sincronizar con físicas si estás usando un motor de físicas
+                    // Sensibilidad de escalado
+                    const scaleChange = thumbstickY * SCALE_SPEED;
+
+                    // Evitar escalados muy pequeños o negativos
+                    if (Math.abs(thumbstickY - previousThumbstickValue) > 0.1) { // Umbral para evitar cambios bruscos
+                        selectedObject.scale.x = THREE.MathUtils.clamp(selectedObject.scale.x + scaleChange, 0.1, 5);
+                        selectedObject.scale.y = THREE.MathUtils.clamp(selectedObject.scale.y + scaleChange, 0.1, 5);
+                        selectedObject.scale.z = THREE.MathUtils.clamp(selectedObject.scale.z + scaleChange, 0.1, 5);
+                    }
+
+                    // Sensibilidad de rotación
+                    const rotateChange = thumbstickX * ROTATE_SPEED;
+
+                    // Evitar rotaciones muy pequeñas
+                    if (Math.abs(thumbstickX - previousRotateThumbstickValue) > 0.1) { // Umbral para evitar cambios bruscos
+                        selectedObject.rotation.y += rotateChange;
+                    }
+
+                    previousThumbstickValue = thumbstickY;
+                    previousRotateThumbstickValue = thumbstickX;
                 }
-            }
-        }
-
-        function constrainPosition(position, min, max) {
-            position.x = Math.max(min.x, Math.min(max.x, position.x));
-            position.y = Math.max(min.y, Math.min(max.y, position.y));
-            position.z = Math.max(min.z, Math.min(max.z, position.z));
-            return position;
-        }
-
-        // Material de resaltado
-        const highlightMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xffff00, 
-            transparent: true, 
-            opacity: 0.5 
-        });
-
-        function initAudio() {
-            listener = new THREE.AudioListener();
-            camera.add(listener);
-
-            // Cargar el sonido
-            const audioLoader = new THREE.AudioLoader();
-            pickSound = new THREE.Audio(listener);
-            audioLoader.load('https://threejs.org/examples/sounds/358232_j_s_song.ogg', function(buffer) { // URL del sonido
-                pickSound.setBuffer(buffer);
-                pickSound.setVolume(0.5);
-            });
-        }
-
-        function setupTransformControls() {
-            transformControls = new TransformControls(camera, renderer.domElement);
-            transformControls.addEventListener('dragging-changed', function (event) {
-                renderer.xr.enabled = !event.value;
-            });
-            scene.add(transformControls);
-
-            // Escuchar cambios en TransformControls para actualizar físicas o lógica adicional
-            transformControls.addEventListener('objectChange', function () {
-                // Aquí puedes sincronizar la posición/rotación con un motor de físicas si lo deseas
-            });
-        }
-
-        function setupKeyboardControls() {
-            window.addEventListener('keydown', function(event) {
-                if (!transformControls.object) return; // No hay objeto seleccionado
-
-                switch(event.key.toLowerCase()) {
-                    case 'a':
-                        transformControls.setMode('translate');
-                        break;
-                    case 'b':
-                        transformControls.setMode('rotate');
-                        break;
-                    case 'x':
-                        transformControls.setMode('scale');
-                        break;
-                }
-            });
-        }
-
-        // Función para seleccionar objetos con el ratón (modo escritorio)
-        function setupMouseControls() {
-            const raycasterMouse = new THREE.Raycaster();
-            const mouse = new THREE.Vector2();
-
-            window.addEventListener('click', function(event) {
-                // Calcular posición del ratón en normalized device coordinates (-1 to +1) for both components.
-                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
-
-                raycasterMouse.setFromCamera(mouse, camera);
-
-                const intersects = raycasterMouse.intersectObjects(selectableObjects, true);
-
-                if (intersects.length > 0) {
-                    const intersected = intersects[0].object;
-
-                    // Seleccionar el objeto
-                    selectObject(intersected);
-                } else {
-                    // Deseleccionar si se hace clic en el espacio vacío
-                    deselectObject();
-                }
-            });
-        }
-
-        function selectObject(object) {
-            if (selectedObject === object) return; // Ya está seleccionado
-
-            // Deseleccionar el objeto anterior
-            deselectObject();
-
-            // Seleccionar el nuevo objeto
-            selectedObject = object;
-
-            // Reproducir sonido
-            if (pickSound.isPlaying) pickSound.stop();
-            pickSound.play();
-
-            // Guardar el material original
-            originalMaterial = selectedObject.material;
-
-            // Aplicar material de resaltado
-            selectedObject.material = highlightMaterial;
-
-            // Adjuntar TransformControls al objeto seleccionado
-            transformControls.attach(selectedObject);
-        }
-
-        function deselectObject() {
-            if (selectedObject) {
-                // Restaurar el material original
-                selectedObject.material = originalMaterial;
-                selectedObject = null;
-
-                // Desadjuntar TransformControls
-                transformControls.detach();
             }
         }
 
