@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
-    <title>three.js VR - Teleport y objetos interactivos</title>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
+    <title>three.js VR - Teleport y Objetos Interactivos para Meta Quest 3</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
         body {
@@ -16,16 +16,23 @@
             width: 100%;
             text-align: center;
             z-index: 100;
+            color: #ffffff;
+            font-size: 1.2em;
+            text-shadow: 1px 1px 2px #000;
         }
         a {
-            color: #0078ff;
+            color: #00aaff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y objetos interactivos
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Objetos Interactivos para Meta Quest 3
     </div>
 
     <script type="importmap">
@@ -59,17 +66,19 @@
         function init() {
             // Escena
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x505050);
+            scene.background = new THREE.Color(0x202020);
 
             // Cámara
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.6, 3);
 
             // Iluminación
-            scene.add(new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3));
-            const light = new THREE.DirectionalLight(0xffffff, 3);
-            light.position.set(1, 1, 1).normalize();
-            scene.add(light);
+            const hemiLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 1.5);
+            scene.add(hemiLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+            dirLight.position.set(1, 1, 1).normalize();
+            scene.add(dirLight);
 
             // Sala
             const room = new THREE.LineSegments(
@@ -80,15 +89,16 @@
 
             // Piso
             floor = new THREE.Mesh(
-                new THREE.PlaneGeometry(4.8, 4.8).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({ color: 0xbcbcbc, transparent: true, opacity: 0.25 })
+                new THREE.PlaneGeometry(10, 10).rotateX(-Math.PI / 2),
+                new THREE.MeshStandardMaterial({ color: 0x808080, metalness: 0.5, roughness: 0.5 })
             );
+            floor.receiveShadow = true;
             scene.add(floor);
 
             // Marcador de teleportación
             marker = new THREE.Mesh(
-                new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({ color: 0xff0000 })
+                new THREE.CircleGeometry(0.3, 32).rotateX(-Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0x00ff00, opacity: 0.6, transparent: true })
             );
             marker.visible = false;
             scene.add(marker);
@@ -101,7 +111,8 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
-            renderer.setAnimationLoop(animate);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
             document.body.appendChild(VRButton.createButton(renderer));
 
@@ -138,11 +149,23 @@
             controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
             scene.add(controllerGrip2);
 
+            // Objetos Interactivos
+            addInteractiveObjects();
+
+            // Cargar Modelo GLTF
+            loadGLTFModel();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function addInteractiveObjects() {
             // Cubo
             const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
             const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
             const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
             cube.position.set(1, 0.25, -1);
+            cube.castShadow = true;
+            cube.receiveShadow = true;
             scene.add(cube);
             selectableObjects.push(cube);
 
@@ -151,17 +174,38 @@
             const sphereMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
             const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
             sphere.position.set(-1, 0.25, -1);
+            sphere.castShadow = true;
+            sphere.receiveShadow = true;
             scene.add(sphere);
             selectableObjects.push(sphere);
 
-            // Modelo GLB
+            // Cilindro
+            const cylinderGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.6, 32);
+            const cylinderMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+            const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+            cylinder.position.set(0, 0.3, 1);
+            cylinder.castShadow = true;
+            cylinder.receiveShadow = true;
+            scene.add(cylinder);
+            selectableObjects.push(cylinder);
+        }
+
+        function loadGLTFModel() {
             const loader = new GLTFLoader();
+            const modelURL = 'https://xococode.github.io/BoomBox.glb'; // URL actualizada
+
             loader.load(
-                '/BoomBox.glb', // Asegúrate de que el archivo está en la raíz del proyecto
+                modelURL,
                 (gltf) => {
                     const model = gltf.scene;
                     model.position.set(0, 0.5, -2);
-                    model.scale.set(2, 2, 2); // Ajusta la escala del modelo
+                    model.scale.set(1, 1, 1); // Ajusta la escala según sea necesario
+                    model.traverse((node) => {
+                        if (node.isMesh) {
+                            node.castShadow = true;
+                            node.receiveShadow = true;
+                        }
+                    });
                     scene.add(model);
                     selectableObjects.push(model);
                 },
@@ -170,8 +214,6 @@
                     console.error('Error al cargar el modelo GLB:', error);
                 }
             );
-
-            window.addEventListener('resize', onWindowResize);
         }
 
         function buildController(data) {
@@ -188,18 +230,28 @@
                     geometry = new THREE.RingGeometry(0.02, 0.04, 32).translate(0, 0, -1);
                     material = new THREE.MeshBasicMaterial({ opacity: 0.5, transparent: true });
                     return new THREE.Mesh(geometry, material);
+
+                default:
+                    return null;
             }
         }
 
         function teleportStart() {
             this.userData.isSelecting = true;
+            marker.material.color.set(0x00ff00);
+            marker.visible = true;
         }
 
         function teleportEnd() {
             this.userData.isSelecting = false;
 
             if (INTERSECTION) {
-                camera.position.set(INTERSECTION.x, camera.position.y, INTERSECTION.z);
+                const newPosition = new THREE.Vector3(INTERSECTION.x, camera.position.y, INTERSECTION.z);
+                // Animación de transición suave
+                new TWEEN.Tween(camera.position)
+                    .to(newPosition, 500)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
                 marker.visible = false;
             }
         }
@@ -211,7 +263,7 @@
             raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
             raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-            const intersects = raycaster.intersectObjects(selectableObjects, false);
+            const intersects = raycaster.intersectObjects(selectableObjects, true);
 
             if (intersects.length > 0) {
                 selectedObject = intersects[0].object;
@@ -233,6 +285,9 @@
         }
 
         function animate() {
+            // Actualizar animaciones (si usas TWEEN u otras librerías)
+            TWEEN.update();
+
             INTERSECTION = null;
 
             [controller1, controller2].forEach((controller) => {
@@ -255,7 +310,12 @@
 
             renderer.render(scene, camera);
         }
+
+        renderer.setAnimationLoop(animate);
     </script>
+
+    <!-- Incluir TWEEN para animaciones suaves -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
 </body>
 </html>
-
