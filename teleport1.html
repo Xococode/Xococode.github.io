@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>three.js vr - teleport</title>
+    <title>three.js VR - Teleport with Models and Movable Objects</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
@@ -16,6 +16,7 @@
             width: 100%;
             text-align: center;
             z-index: 100;
+            color: white;
         }
         a {
             color: #0078ff;
@@ -25,7 +26,7 @@
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> vr - teleport
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport with Models and Movable Objects
     </div>
 
     <!-- Import Map -->
@@ -55,110 +56,79 @@
         let INTERSECTION;
         const tempMatrix = new THREE.Matrix4();
 
+        // Objetos añadidos
+        let cube, sphere;
+
+        // Objetos seleccionables
+        let selectedObject = null;
+
         init();
 
         function init() {
+            // Escena
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x505050);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10);
-            camera.position.set(0, 1, 3);
+            // Cámara
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3); // Posición típica de VR
 
+            // Sala
             room = new THREE.LineSegments(
                 new BoxLineGeometry(6, 6, 6, 10, 10, 10).translate(0, 3, 0),
                 new THREE.LineBasicMaterial({ color: 0xbcbcbc })
             );
             scene.add(room);
 
+            // Iluminación
             scene.add(new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3));
 
             const light = new THREE.DirectionalLight(0xffffff, 3);
             light.position.set(1, 1, 1).normalize();
             scene.add(light);
 
+            // Marcador de teleport
             marker = new THREE.Mesh(
                 new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2),
                 new THREE.MeshBasicMaterial({ color: 0xbcbcbc })
             );
             scene.add(marker);
 
+            // Piso
             floor = new THREE.Mesh(
                 new THREE.PlaneGeometry(4.8, 4.8, 2, 2).rotateX(-Math.PI / 2),
                 new THREE.MeshBasicMaterial({ color: 0xbcbcbc, transparent: true, opacity: 0.25 })
             );
             scene.add(floor);
 
-            // Cargar el modelo BoomBox.glb
-            const loader = new GLTFLoader();
-            loader.load(
-                './BoomBox.glb', // Asegúrate de que el archivo BoomBox.glb esté en el mismo directorio que este HTML
-                function (gltf) {
-                    const model = gltf.scene;
-                    model.position.set(0, 0, 0); // Ajusta la posición según sea necesario
-                    model.scale.set(0.5, 0.5, 0.5); // Ajusta la escala según sea necesario
-                    scene.add(model);
-                    console.log('Modelo cargado exitosamente');
-                },
-                function (xhr) {
-                    console.log((xhr.loaded / xhr.total * 100) + '% cargado');
-                },
-                function (error) {
-                    console.error('Error al cargar el modelo:', error);
-                }
-            );
-
+            // Raycaster para interacciones
             raycaster = new THREE.Raycaster();
 
+            // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setAnimationLoop(animate);
-
-            renderer.xr.addEventListener('sessionstart', () => baseReferenceSpace = renderer.xr.getReferenceSpace());
             renderer.xr.enabled = true;
 
-            document.body.appendChild(renderer.domElement);
+            // Botón VR
             document.body.appendChild(VRButton.createButton(renderer));
 
-            // Controllers
-            function onSelectStart() {
-                this.userData.isSelecting = true;
-            }
-
-            function onSelectEnd() {
-                this.userData.isSelecting = false;
-
-                if (INTERSECTION) {
-                    const offsetPosition = { x: -INTERSECTION.x, y: -INTERSECTION.y, z: -INTERSECTION.z, w: 1 };
-                    const offsetRotation = new THREE.Quaternion();
-                    const transform = new XRRigidTransform(offsetPosition, offsetRotation);
-                    const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
-
-                    renderer.xr.setReferenceSpace(teleportSpaceOffset);
-                }
-            }
-
+            // Controladores
             controller1 = renderer.xr.getController(0);
-            controller1.addEventListener('selectstart', onSelectStart);
-            controller1.addEventListener('selectend', onSelectEnd);
-            controller1.addEventListener('connected', function (event) {
-                this.add(buildController(event.data));
-            });
-            controller1.addEventListener('disconnected', function () {
-                this.remove(this.children[0]);
-            });
-            scene.add(controller1);
-
             controller2 = renderer.xr.getController(1);
-            controller2.addEventListener('selectstart', onSelectStart);
-            controller2.addEventListener('selectend', onSelectEnd);
-            controller2.addEventListener('connected', function (event) {
-                this.add(buildController(event.data));
+
+            [controller1, controller2].forEach((controller) => {
+                controller.addEventListener('selectstart', onSelectStart);
+                controller.addEventListener('selectend', onSelectEnd);
+                controller.addEventListener('connected', function (event) {
+                    this.add(buildController(event.data));
+                });
+                controller.addEventListener('disconnected', function () {
+                    this.remove(this.children[0]);
+                });
+                scene.add(controller);
             });
-            controller2.addEventListener('disconnected', function () {
-                this.remove(this.children[0]);
-            });
-            scene.add(controller2);
 
             const controllerModelFactory = new XRControllerModelFactory();
 
@@ -170,8 +140,47 @@
             controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
             scene.add(controllerGrip2);
 
+            // Cargar el modelo BoomBox.glb
+            const loader = new GLTFLoader();
+            loader.load(
+                './BoomBox.glb', // Ruta del modelo
+                function (gltf) {
+                    const model = gltf.scene;
+                    model.position.set(0, 0, 0); // Ajusta la posición
+                    model.scale.set(0.5, 0.5, 0.5); // Ajusta la escala
+                    scene.add(model);
+                    console.log('Modelo BoomBox cargado exitosamente');
+                },
+                function (xhr) {
+                    console.log((xhr.loaded / xhr.total * 100) + '% cargado');
+                },
+                function (error) {
+                    console.error('Error al cargar el modelo BoomBox:', error);
+                }
+            );
+
+            // Añadir un cubo
+            const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+            cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.position.set(1, 0.25, -1);
+            scene.add(cube);
+
+            // Añadir una esfera
+            const sphereGeometry = new THREE.SphereGeometry(0.25, 32, 32);
+            const sphereMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            sphere.position.set(-1, 0.25, -1);
+            scene.add(sphere);
+
+            // Añadir objetos al array para selección
+            selectableObjects.push(cube, sphere);
+
             window.addEventListener('resize', onWindowResize);
         }
+
+        // Array para objetos seleccionables
+        const selectableObjects = [];
 
         function buildController(data) {
             let geometry, material;
@@ -197,6 +206,44 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        function onSelectStart() {
+            this.userData.isSelecting = true;
+
+            // Raycasting para selección de objetos
+            tempMatrix.identity().extractRotation(this.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(selectableObjects, false);
+
+            if (intersects.length > 0) {
+                selectedObject = intersects[0].object;
+                console.log('Objeto seleccionado:', selectedObject);
+            }
+        }
+
+        function onSelectEnd() {
+            this.userData.isSelecting = false;
+
+            if (selectedObject) {
+                // Teleportar el objeto a la posición del marcador
+                if (INTERSECTION) {
+                    selectedObject.position.copy(INTERSECTION);
+                    console.log('Objeto movido a:', INTERSECTION);
+                }
+                selectedObject = null;
+            }
+
+            if (INTERSECTION) {
+                const offsetPosition = { x: -INTERSECTION.x, y: -INTERSECTION.y, z: -INTERSECTION.z, w: 1 };
+                const offsetRotation = new THREE.Quaternion();
+                const transform = new XRRigidTransform(offsetPosition, offsetRotation);
+                const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
+
+                renderer.xr.setReferenceSpace(teleportSpaceOffset);
+            }
+        }
+
         function animate() {
             INTERSECTION = undefined;
 
@@ -214,7 +261,9 @@
                 }
             });
 
-            if (INTERSECTION) marker.position.copy(INTERSECTION);
+            if (INTERSECTION) {
+                marker.position.copy(INTERSECTION);
+            }
 
             marker.visible = INTERSECTION !== undefined;
 
