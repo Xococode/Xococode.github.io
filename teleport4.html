@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <title>three.js VR - Teleport y Manipulación de Objetos</title>
+    <title>three.js VR - Teleport y Manipulación de Objetos con Gizmos</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
@@ -27,12 +27,28 @@
         a:hover {
             text-decoration: underline;
         }
+        /* Estilo para instrucciones de teclado */
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Manipulación de Objetos
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Manipulación de Objetos con Gizmos
+    </div>
+
+    <div id="instructions">
+        <strong>Instrucciones:</strong> Selecciona un objeto y presiona <strong>A</strong> para trasladar, <strong>B</strong> para rotar y <strong>X</strong> para escalar.
     </div>
 
     <!-- Import Map -->
@@ -45,6 +61,12 @@
         }
     </script>
 
+    <!-- Importar Tween.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
+    <!-- Importar Cannon.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon/0.6.2/cannon.min.js"></script>
+
     <script type="module">
 
         import * as THREE from 'three';
@@ -53,6 +75,7 @@
         import { VRButton } from 'three/addons/webxr/VRButton.js';
         import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
         // Variables globales
         let camera, scene, renderer;
@@ -64,15 +87,27 @@
 
         // Variables para manipulación de objetos
         let selectedObject = null;
+        let originalMaterial = null;
         let offset = new THREE.Vector3();
         let intersectionPlane = new THREE.Plane();
         let intersectionPoint = new THREE.Vector3();
+        let isRotating = false;
 
         // Modelo cargado
         let boomBox;
 
         // Arreglo para objetos seleccionables
         const selectableObjects = [];
+
+        // Física
+        let world;
+        const objectsWithBodies = [];
+
+        // Audio
+        let listener, pickSound;
+
+        // TransformControls
+        let transformControls;
 
         init();
         animate();
@@ -112,6 +147,21 @@
 
             // Configurar los controladores
             setupControllers();
+
+            // Inicializar físicas
+            initPhysics();
+
+            // Inicializar audio
+            initAudio();
+
+            // Configurar TransformControls
+            setupTransformControls();
+
+            // Configurar eventos de teclado
+            setupKeyboardControls();
+
+            // Configurar controles de ratón para modo escritorio
+            setupMouseControls();
 
             // Manejar el redimensionamiento de la ventana
             window.addEventListener('resize', onWindowResize);
@@ -183,6 +233,17 @@
                     });
                     scene.add(boomBox);
                     selectableObjects.push(boomBox);
+                    
+                    // Crear cuerpo físico para el boomBox
+                    const bbox = new THREE.Box3().setFromObject(boomBox);
+                    const size = new THREE.Vector3();
+                    bbox.getSize(size);
+                    const shape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
+                    const body = new CANNON.Body({ mass: 1 });
+                    body.addShape(shape);
+                    body.position.copy(boomBox.position);
+                    world.addBody(body);
+                    objectsWithBodies.push({ mesh: boomBox, body: body });
                 },
                 undefined,
                 (error) => {
@@ -193,13 +254,35 @@
 
         function addInteractiveObjects() {
             // Función auxiliar para crear objetos interactivos
-            function createInteractiveObject(geometry, material, position) {
+            function createInteractiveObject(geometry, material, position, mass = 1) {
                 const mesh = new THREE.Mesh(geometry, material);
                 mesh.position.copy(position);
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
                 scene.add(mesh);
                 selectableObjects.push(mesh);
+
+                // Crear cuerpo físico
+                let shape;
+                if (geometry instanceof THREE.BoxGeometry) {
+                    const params = geometry.parameters;
+                    shape = new CANNON.Box(new CANNON.Vec3(params.width / 2, params.height / 2, params.depth / 2));
+                } else if (geometry instanceof THREE.SphereGeometry) {
+                    const params = geometry.parameters;
+                    shape = new CANNON.Sphere(params.radius);
+                } else if (geometry instanceof THREE.CylinderGeometry) {
+                    const params = geometry.parameters;
+                    shape = new CANNON.Cylinder(params.radiusTop, params.radiusBottom, params.height, params.radialSegments);
+                } else {
+                    shape = new CANNON.Box(new CANNON.Vec3(0.25, 0.25, 0.25)); // Forma por defecto
+                }
+
+                const body = new CANNON.Body({ mass: mass });
+                body.addShape(shape);
+                body.position.copy(mesh.position);
+                world.addBody(body);
+
+                objectsWithBodies.push({ mesh, body });
             }
 
             // Materiales compartidos para optimización
@@ -257,6 +340,10 @@
             controllerGripManipulation = renderer.xr.getControllerGrip(1);
             controllerGripManipulation.add(controllerModelFactory.createControllerModel(controllerGripManipulation));
             scene.add(controllerGripManipulation);
+
+            // Añadir eventos para rotación
+            controllerManipulation.addEventListener('squeezestart', onRotateStart);
+            controllerManipulation.addEventListener('squeezeend', onRotateEnd);
         }
 
         function buildController(data) {
@@ -302,6 +389,17 @@
 
                 if (intersects.length > 0) {
                     selectedObject = intersects[0].object;
+
+                    // Reproducir sonido
+                    if (pickSound.isPlaying) pickSound.stop();
+                    pickSound.play();
+
+                    // Guardar el material original
+                    originalMaterial = selectedObject.material;
+
+                    // Aplicar material de resaltado
+                    selectedObject.material = highlightMaterial;
+
                     // Definir el plano de intersección
                     intersectionPlane.setFromNormalAndCoplanarPoint(
                         new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion),
@@ -311,15 +409,33 @@
                     if (intersectionPlane.intersectRay(raycaster.ray, intersectionPoint)) {
                         offset.copy(intersectionPoint).sub(selectedObject.position);
                     }
+
+                    // Adjuntar TransformControls al objeto seleccionado
+                    transformControls.attach(selectedObject);
                 }
             }
         }
 
         function onManipulationSelectEnd() {
             this.userData.isSelecting = false;
-            if (this === controllerManipulation) {
+            if (this === controllerManipulation && selectedObject) {
+                // Restaurar el material original
+                selectedObject.material = originalMaterial;
                 selectedObject = null;
+
+                // Desadjuntar TransformControls
+                transformControls.detach();
             }
+        }
+
+        function onRotateStart() {
+            if (selectedObject) {
+                isRotating = true;
+            }
+        }
+
+        function onRotateEnd() {
+            isRotating = false;
         }
 
         function teleportTo(position) {
@@ -341,11 +457,23 @@
         }
 
         function render() {
+            // Avanzar el mundo de físicas
+            world.step(1/60); // Asumiendo 60 FPS
+
+            // Sincronizar posiciones de mallas con cuerpos físicos
+            objectsWithBodies.forEach(obj => {
+                obj.mesh.position.copy(obj.body.position);
+                obj.mesh.quaternion.copy(obj.body.quaternion);
+            });
+
             // Actualizar teletransporte
             updateTeleportation();
 
             // Actualizar manipulación de objetos
             updateObjectManipulation();
+
+            // Actualizar Tween
+            TWEEN.update();
 
             renderer.render(scene, camera);
         }
@@ -358,7 +486,7 @@
                 raycaster.ray.origin.setFromMatrixPosition(controllerTeleport.matrixWorld);
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-                const intersects = raycaster.intersectObject(floor);
+                const intersects = raycaster.ray.intersectObject(floor);
                 if (intersects.length > 0) {
                     intersection = intersects[0].point;
                 }
@@ -379,8 +507,181 @@
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
                 if (raycaster.ray.intersectPlane(intersectionPlane, intersectionPoint)) {
-                    selectedObject.position.copy(intersectionPoint.sub(offset));
+                    let targetPosition = intersectionPoint.sub(offset);
+
+                    // Restringir posición dentro de los límites definidos
+                    const min = new THREE.Vector3(-2, 0, -2);
+                    const max = new THREE.Vector3(2, 2, 2);
+                    targetPosition = constrainPosition(targetPosition, min, max);
+
+                    // Movimiento suave
+                    new TWEEN.Tween(selectedObject.position)
+                        .to({
+                            x: targetPosition.x,
+                            y: targetPosition.y,
+                            z: targetPosition.z
+                        }, 100) // Duración en milisegundos
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .start();
+
+                    // Actualizar cuerpo físico
+                    const objBody = objectsWithBodies.find(obj => obj.mesh === selectedObject)?.body;
+                    if (objBody) {
+                        objBody.position.copy(selectedObject.position);
+                        objBody.velocity.setZero();
+                        objBody.angularVelocity.setZero();
+                    }
                 }
+
+                // Rotación
+                if (isRotating && selectedObject) {
+                    const rotationSpeed = 0.05;
+                    selectedObject.rotation.y += rotationSpeed;
+
+                    // Actualizar cuerpo físico
+                    const objBody = objectsWithBodies.find(obj => obj.mesh === selectedObject)?.body;
+                    if (objBody) {
+                        objBody.quaternion.copy(selectedObject.quaternion);
+                    }
+                }
+            }
+        }
+
+        function constrainPosition(position, min, max) {
+            position.x = Math.max(min.x, Math.min(max.x, position.x));
+            position.y = Math.max(min.y, Math.min(max.y, position.y));
+            position.z = Math.max(min.z, Math.min(max.z, position.z));
+            return position;
+        }
+
+        // Material de resaltado
+        const highlightMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xffff00, 
+            transparent: true, 
+            opacity: 0.5 
+        });
+
+        function initPhysics() {
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0); // Gravedad estándar
+            world.broadphase = new CANNON.NaiveBroadphase();
+            world.solver.iterations = 10;
+
+            // Crear suelo físico
+            const floorShape = new CANNON.Plane();
+            const floorBody = new CANNON.Body({ mass: 0 });
+            floorBody.addShape(floorShape);
+            floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+            world.addBody(floorBody);
+        }
+
+        function initAudio() {
+            listener = new THREE.AudioListener();
+            camera.add(listener);
+
+            // Cargar el sonido
+            const audioLoader = new THREE.AudioLoader();
+            pickSound = new THREE.Audio(listener);
+            audioLoader.load('https://xococode.github.io/pick-sound.mp3', function(buffer) {
+                pickSound.setBuffer(buffer);
+                pickSound.setVolume(0.5);
+            });
+        }
+
+        function setupTransformControls() {
+            transformControls = new TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('dragging-changed', function (event) {
+                renderer.xr.enabled = !event.value;
+            });
+            scene.add(transformControls);
+
+            // Escuchar cambios en TransformControls para actualizar físicas
+            transformControls.addEventListener('objectChange', function () {
+                if (selectedObject) {
+                    const objBody = objectsWithBodies.find(obj => obj.mesh === selectedObject)?.body;
+                    if (objBody) {
+                        objBody.position.copy(selectedObject.position);
+                        objBody.quaternion.copy(selectedObject.quaternion);
+                    }
+                }
+            });
+        }
+
+        function setupKeyboardControls() {
+            window.addEventListener('keydown', function(event) {
+                if (!transformControls.object) return; // No hay objeto seleccionado
+
+                switch(event.key.toLowerCase()) {
+                    case 'a':
+                        transformControls.setMode('translate');
+                        break;
+                    case 'b':
+                        transformControls.setMode('rotate');
+                        break;
+                    case 'x':
+                        transformControls.setMode('scale');
+                        break;
+                }
+            });
+        }
+
+        // Función para seleccionar objetos con el ratón (modo escritorio)
+        function setupMouseControls() {
+            const raycasterMouse = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+
+            window.addEventListener('click', function(event) {
+                // Calcular posición del ratón en normalized device coordinates (-1 to +1) for both components.
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+                raycasterMouse.setFromCamera(mouse, camera);
+
+                const intersects = raycasterMouse.intersectObjects(selectableObjects, true);
+
+                if (intersects.length > 0) {
+                    const intersected = intersects[0].object;
+
+                    // Seleccionar el objeto
+                    selectObject(intersected);
+                } else {
+                    // Deseleccionar si se hace clic en el espacio vacío
+                    deselectObject();
+                }
+            });
+        }
+
+        function selectObject(object) {
+            if (selectedObject === object) return; // Ya está seleccionado
+
+            // Deseleccionar el objeto anterior
+            deselectObject();
+
+            // Seleccionar el nuevo objeto
+            selectedObject = object;
+
+            // Reproducir sonido
+            if (pickSound.isPlaying) pickSound.stop();
+            pickSound.play();
+
+            // Guardar el material original
+            originalMaterial = selectedObject.material;
+
+            // Aplicar material de resaltado
+            selectedObject.material = highlightMaterial;
+
+            // Adjuntar TransformControls al objeto seleccionado
+            transformControls.attach(selectedObject);
+        }
+
+        function deselectObject() {
+            if (selectedObject) {
+                // Restaurar el material original
+                selectedObject.material = originalMaterial;
+                selectedObject = null;
+
+                // Desadjuntar TransformControls
+                transformControls.detach();
             }
         }
 
