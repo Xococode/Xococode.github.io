@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>three.js VR - Teleportación</title>
+    <title>three.js VR - Teleport y objetos interactivos</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
@@ -25,7 +25,7 @@
 <body>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleportación
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y objetos interactivos
     </div>
 
     <script type="importmap">
@@ -42,63 +42,72 @@
         import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
         import { VRButton } from 'three/addons/webxr/VRButton.js';
         import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         let camera, scene, raycaster, renderer;
         let controller1, controller2;
         let controllerGrip1, controllerGrip2;
-
-        let room, marker, floor;
-        let baseReferenceSpace, INTERSECTION;
-
+        let INTERSECTION = null;
+        const selectableObjects = [];
+        let selectedObject = null;
         const tempMatrix = new THREE.Matrix4();
+
+        let marker, floor, baseReferenceSpace;
 
         init();
 
         function init() {
+            // Escena
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x505050);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10);
+            // Cámara
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.6, 3);
 
-            room = new THREE.LineSegments(
+            // Iluminación
+            scene.add(new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3));
+            const light = new THREE.DirectionalLight(0xffffff, 3);
+            light.position.set(1, 1, 1).normalize();
+            scene.add(light);
+
+            // Sala
+            const room = new THREE.LineSegments(
                 new BoxLineGeometry(6, 6, 6, 10, 10, 10).translate(0, 3, 0),
                 new THREE.LineBasicMaterial({ color: 0xbcbcbc })
             );
             scene.add(room);
 
-            scene.add(new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3));
-
-            const light = new THREE.DirectionalLight(0xffffff, 3);
-            light.position.set(1, 1, 1).normalize();
-            scene.add(light);
-
-            marker = new THREE.Mesh(
-                new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({ color: 0xbcbcbc })
-            );
-            scene.add(marker);
-
+            // Piso
             floor = new THREE.Mesh(
-                new THREE.PlaneGeometry(4.8, 4.8, 2, 2).rotateX(-Math.PI / 2),
+                new THREE.PlaneGeometry(4.8, 4.8).rotateX(-Math.PI / 2),
                 new THREE.MeshBasicMaterial({ color: 0xbcbcbc, transparent: true, opacity: 0.25 })
             );
             scene.add(floor);
 
+            // Marcador de teleportación
+            marker = new THREE.Mesh(
+                new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0xff0000 })
+            );
+            marker.visible = false;
+            scene.add(marker);
+
+            // Raycaster
             raycaster = new THREE.Raycaster();
 
+            // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setAnimationLoop(animate);
-
-            renderer.xr.addEventListener('sessionstart', () => baseReferenceSpace = renderer.xr.getReferenceSpace());
             renderer.xr.enabled = true;
-
+            renderer.setAnimationLoop(animate);
             document.body.appendChild(renderer.domElement);
             document.body.appendChild(VRButton.createButton(renderer));
 
-            // Controllers
+            // Controladores
+            const controllerModelFactory = new XRControllerModelFactory();
+
             controller1 = renderer.xr.getController(0);
             controller1.addEventListener('selectstart', teleportStart);
             controller1.addEventListener('selectend', teleportEnd);
@@ -111,8 +120,8 @@
             scene.add(controller1);
 
             controller2 = renderer.xr.getController(1);
-            controller2.addEventListener('selectstart', teleportStart);
-            controller2.addEventListener('selectend', teleportEnd);
+            controller2.addEventListener('selectstart', onSelectStart);
+            controller2.addEventListener('selectend', onSelectEnd);
             controller2.addEventListener('connected', function (event) {
                 this.add(buildController(event.data));
             });
@@ -121,7 +130,6 @@
             });
             scene.add(controller2);
 
-            const controllerModelFactory = new XRControllerModelFactory();
             controllerGrip1 = renderer.xr.getControllerGrip(0);
             controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1));
             scene.add(controllerGrip1);
@@ -130,12 +138,44 @@
             controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2));
             scene.add(controllerGrip2);
 
+            // Cubo
+            const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+            const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            cube.position.set(1, 0.25, -1);
+            scene.add(cube);
+            selectableObjects.push(cube);
+
+            // Esfera
+            const sphereGeometry = new THREE.SphereGeometry(0.25, 32, 32);
+            const sphereMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            sphere.position.set(-1, 0.25, -1);
+            scene.add(sphere);
+            selectableObjects.push(sphere);
+
+            // Modelo GLB
+            const loader = new GLTFLoader();
+            loader.load(
+                '/BoomBox.glb', // Asegúrate de que el archivo está en la raíz del proyecto
+                (gltf) => {
+                    const model = gltf.scene;
+                    model.position.set(0, 0.5, -2);
+                    model.scale.set(2, 2, 2); // Ajusta la escala del modelo
+                    scene.add(model);
+                    selectableObjects.push(model);
+                },
+                undefined,
+                (error) => {
+                    console.error('Error al cargar el modelo GLB:', error);
+                }
+            );
+
             window.addEventListener('resize', onWindowResize);
         }
 
         function buildController(data) {
             let geometry, material;
-
             switch (data.targetRayMode) {
                 case 'tracked-pointer':
                     geometry = new THREE.BufferGeometry();
@@ -158,14 +198,31 @@
         function teleportEnd() {
             this.userData.isSelecting = false;
 
-            if (INTERSECTION && baseReferenceSpace) {
-                const offsetPosition = { x: -INTERSECTION.x, y: -INTERSECTION.y, z: -INTERSECTION.z };
-                const offsetRotation = new THREE.Quaternion();
-                const transform = new XRRigidTransform(offsetPosition, offsetRotation);
-                const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
+            if (INTERSECTION) {
+                camera.position.set(INTERSECTION.x, camera.position.y, INTERSECTION.z);
+                marker.visible = false;
+            }
+        }
 
-                renderer.xr.setReferenceSpace(teleportSpaceOffset);
-                console.log('Teletransportado a:', INTERSECTION);
+        function onSelectStart() {
+            const controller = this;
+
+            tempMatrix.identity().extractRotation(controller.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(selectableObjects, false);
+
+            if (intersects.length > 0) {
+                selectedObject = intersects[0].object;
+                controller.attach(selectedObject);
+            }
+        }
+
+        function onSelectEnd() {
+            if (selectedObject) {
+                this.parent.attach(selectedObject);
+                selectedObject = null;
             }
         }
 
@@ -176,7 +233,7 @@
         }
 
         function animate() {
-            INTERSECTION = undefined;
+            INTERSECTION = null;
 
             [controller1, controller2].forEach((controller) => {
                 if (controller.userData.isSelecting) {
@@ -185,6 +242,7 @@
                     raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
                     const intersects = raycaster.intersectObjects([floor]);
+
                     if (intersects.length > 0) {
                         INTERSECTION = intersects[0].point;
                         marker.position.copy(INTERSECTION);
