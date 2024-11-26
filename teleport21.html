@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>three.js VR - Laberinto con Pistas</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
+        }
+        #clue {
+            /* Estilos definidos en displayClue */
+        }
+        a { color: #00aaff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <div id="info">
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Laberinto con Pistas
+    </div>
+
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        let camera, scene, renderer;
+        let controllerTeleport, controllerManipulation;
+        let controllerGripTeleport, controllerGripManipulation;
+        let marker, floor, baseReferenceSpace;
+        let raycaster = new THREE.Raycaster();
+        const tempMatrix = new THREE.Matrix4();
+        let selectedObject = null;
+        let offset = new THREE.Vector3();
+        let intersectionPlane = new THREE.Plane();
+        let intersectionPoint = new THREE.Vector3();
+        let boomBox;
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x505050);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3);
+
+            addLights();
+            createFloor();
+            createMarker();
+
+            const rooms = createMaze();
+            const teleportPoints = createTeleportPoints(rooms);
+            createClues();
+
+            setupRenderer();
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            loadModel();
+            setupControllers();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function addLights() {
+            const hemisphereLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
+            scene.add(hemisphereLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+        }
+
+        function createFloor() {
+            const floorGeometry = new THREE.PlaneGeometry(24, 24, 2, 2).rotateX(-Math.PI / 2);
+            const floorMaterial = new THREE.MeshBasicMaterial({ color: 0x808080, transparent: true, opacity: 0.5 });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            scene.add(floor);
+        }
+
+        function createMarker() {
+            const markerGeometry = new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.visible = false;
+            scene.add(marker);
+        }
+
+        function createMaze() {
+            const roomSize = 6;
+            const rooms = [];
+
+            const positions = [
+                { x: 0, y: roomSize / 2, z: 0 },
+                { x: roomSize, y: roomSize / 2, z: 0 },
+                { x: -roomSize, y: roomSize / 2, z: 0 },
+                { x: 0, y: roomSize / 2, z: roomSize },
+                { x: 0, y: roomSize / 2, z: -roomSize },
+                // Añade más habitaciones según el diseño del laberinto
+            ];
+
+            positions.forEach(pos => {
+                const roomGeometry = new THREE.BoxGeometry(roomSize, roomSize, roomSize);
+                const roomMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    wireframe: true
+                });
+                const room = new THREE.Mesh(roomGeometry, roomMaterial);
+                room.position.set(pos.x, pos.y, pos.z);
+                scene.add(room);
+                rooms.push(room);
+            });
+
+            return rooms;
+        }
+
+        function createTeleportPoints(rooms) {
+            const teleportPoints = [];
+
+            rooms.forEach((room, index) => {
+                // Teletransporte al norte
+                if (index < rooms.length - 1) {
+                    const teleport = createTeleportMarker();
+                    teleport.position.set(room.position.x, 1, room.position.z + 3);
+                    scene.add(teleport);
+                    teleportPoints.push({ from: index, to: index + 1, marker: teleport });
+                }
+
+                // Teletransporte al sur
+                if (index > 0) {
+                    const teleport = createTeleportMarker();
+                    teleport.position.set(room.position.x, 1, room.position.z - 3);
+                    scene.add(teleport);
+                    teleportPoints.push({ from: index, to: index - 1, marker: teleport });
+                }
+            });
+
+            return teleportPoints;
+        }
+
+        function createTeleportMarker() {
+            const markerGeometry = new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.visible = false;
+            return marker;
+        }
+
+        function createClues() {
+            const clueGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const clueMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            
+            const clues = [
+                { position: new THREE.Vector3(0, 1, 0), text: "La salida está al este." },
+                { position: new THREE.Vector3(6, 1, 6), text: "Busca la puerta oculta en el norte." },
+                // Añade más pistas según el diseño del laberinto
+            ];
+
+            clues.forEach(clueData => {
+                const clue = new THREE.Mesh(clueGeometry, clueMaterial);
+                clue.position.copy(clueData.position);
+                clue.userData = { clue: clueData.text };
+                scene.add(clue);
+            });
+        }
+
+        function setupRenderer() {
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            renderer.xr.addEventListener('sessionstart', () => {
+                baseReferenceSpace = renderer.xr.getReferenceSpace();
+            });
+            document.body.appendChild(renderer.domElement);
+        }
+
+        function loadModel() {
+            const loader = new GLTFLoader();
+            loader.load(
+                'https://xococode.github.io/BoomBox.glb',
+                (gltf) => {
+                    boomBox = gltf.scene;
+                    boomBox.scale.set(0.02, 0.02, 0.02); // Ajustar escala
+                    boomBox.position.set(0, 0, 0);
+                    scene.add(boomBox);
+                },
+                undefined,
+                (error) => {
+                    console.error('Error al cargar el modelo GLB:', error);
+                }
+            );
+        }
+
+        function setupControllers() {
+            const controllerModelFactory = new XRControllerModelFactory();
+
+            // Controlador de teletransporte (izquierdo)
+            controllerTeleport = renderer.xr.getController(0);
+            controllerTeleport.addEventListener('selectstart', onTeleportSelectStart);
+            controllerTeleport.addEventListener('selectend', onTeleportSelectEnd);
+            controllerTeleport.addEventListener('connected', (event) => {
+                controllerTeleport.add(buildController(event.data));
+            });
+            controllerTeleport.addEventListener('disconnected', () => {
+                controllerTeleport.remove(controllerTeleport.children[0]);
+            });
+            scene.add(controllerTeleport);
+
+            controllerGripTeleport = renderer.xr.getControllerGrip(0);
+            controllerGripTeleport.add(controllerModelFactory.createControllerModel(controllerGripTeleport));
+            scene.add(controllerGripTeleport);
+
+            // Controlador de manipulación (derecho)
+            controllerManipulation = renderer.xr.getController(1);
+            controllerManipulation.addEventListener('selectstart', onManipulationSelectStart);
+            controllerManipulation.addEventListener('selectend', onManipulationSelectEnd);
+            controllerManipulation.addEventListener('connected', (event) => {
+                controllerManipulation.add(buildController(event.data));
+            });
+            controllerManipulation.addEventListener('disconnected', () => {
+                controllerManipulation.remove(controllerManipulation.children[0]);
+            });
+            scene.add(controllerManipulation);
+
+            controllerGripManipulation = renderer.xr.getControllerGrip(1);
+            controllerGripManipulation.add(controllerModelFactory.createControllerModel(controllerGripManipulation));
+            scene.add(controllerGripManipulation);
+        }
+
+        function buildController(data) {
+            let geometry, material;
+
+            switch (data.targetRayMode) {
+                case 'tracked-pointer':
+                    geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
+                    geometry.setAttribute('color', new THREE.Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
+                    material = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending });
+                    return new THREE.Line(geometry, material);
+
+                case 'gaze':
+                    geometry = new THREE.RingGeometry(0.02, 0.04, 32).translate(0, 0, -1);
+                    material = new THREE.MeshBasicMaterial({ opacity: 0.5, transparent: true });
+                    return new THREE.Mesh(geometry, material);
+            }
+        }
+
+        function onTeleportSelectStart() {
+            this.userData.isSelecting = true;
+        }
+
+        function onTeleportSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerTeleport && marker.visible) {
+                teleportTo(marker.position);
+                marker.visible = false;
+            }
+        }
+
+        function onManipulationSelectStart() {
+            this.userData.isSelecting = true;
+
+            if (boomBox) {
+                tempMatrix.identity().extractRotation(this.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                const intersects = raycaster.intersectObjects(scene.children, true);
+
+                if (intersects.length > 0) {
+                    const intersected = intersects[0].object;
+                    if (intersected.userData.clue) {
+                        displayClue(intersected.userData.clue);
+                    }
+                }
+            }
+        }
+
+        function onManipulationSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerManipulation) {
+                selectedObject = null;
+            }
+        }
+
+        function teleportTo(position) {
+            const offsetPosition = { x: -position.x, y: -position.y, z: -position.z, w: 1 };
+            const offsetRotation = new THREE.Quaternion();
+            const transform = new XRRigidTransform(offsetPosition, offsetRotation);
+            const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
+            renderer.xr.setReferenceSpace(teleportSpaceOffset);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            updateTeleportation();
+            updateObjectManipulation();
+            renderer.render(scene, camera);
+        }
+
+        function updateTeleportation() {
+            let intersection = null;
+
+            if (controllerTeleport.userData.isSelecting) {
+                tempMatrix.identity().extractRotation(controllerTeleport.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(controllerTeleport.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                const intersects = raycaster.intersectObject(floor);
+                if (intersects.length > 0) {
+                    intersection = intersects[0].point;
+                }
+            }
+
+            if (intersection) {
+                marker.position.copy(intersection);
+                marker.visible = true;
+            } else {
+                marker.visible = false;
+            }
+        }
+
+        function updateObjectManipulation() {
+            if (selectedObject && controllerManipulation.userData.isSelecting) {
+                tempMatrix.identity().extractRotation(controllerManipulation.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(controllerManipulation.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                if (raycaster.ray.intersectPlane(intersectionPlane, intersectionPoint)) {
+                    selectedObject.position.copy(intersectionPoint.sub(offset));
+                }
+            }
+        }
+
+        function displayClue(text) {
+            const clueDiv = document.createElement('div');
+            clueDiv.id = 'clue';
+            clueDiv.style.position = 'absolute';
+            clueDiv.style.bottom = '20px';
+            clueDiv.style.left = '50%';
+            clueDiv.style.transform = 'translateX(-50%)';
+            clueDiv.style.padding = '10px 20px';
+            clueDiv.style.background = 'rgba(0, 0, 0, 0.7)';
+            clueDiv.style.color = '#fff';
+            clueDiv.style.borderRadius = '5px';
+            clueDiv.style.fontSize = '1.2em';
+            clueDiv.innerText = text;
+            document.body.appendChild(clueDiv);
+
+            setTimeout(() => {
+                clueDiv.remove();
+            }, 5000);
+        }
+
+    </script>
+</body>
+</html>
