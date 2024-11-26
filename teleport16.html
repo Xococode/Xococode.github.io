@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>three.js VR - Meta Quest 3: Uso Completo de los Botones</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+
+        import * as THREE from 'three';
+
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+        let camera, scene, renderer;
+        let controllerLeft, controllerRight;
+        let directionalLight, selectedObject;
+        const raycaster = new THREE.Raycaster();
+        const tempMatrix = new THREE.Matrix4();
+        let youtubePlane, animatedObject;
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x505050);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            const hemiLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
+            scene.add(hemiLight);
+
+            directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(1, 1, 1).normalize();
+            directionalLight.visible = false;
+            scene.add(directionalLight);
+
+            loadModels();
+            setupControllers();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function loadModels() {
+            const loader = new GLTFLoader();
+            loader.load(
+                'https://xococode.github.io/BoomBox.glb',
+                (gltf) => {
+                    const boomBox = gltf.scene;
+                    boomBox.scale.set(10, 10, 10);
+                    boomBox.position.set(0, 0, -2);
+                    scene.add(boomBox);
+                },
+                undefined,
+                (error) => console.error('Error al cargar el modelo:', error)
+            );
+        }
+
+        function setupControllers() {
+            const controllerModelFactory = new XRControllerModelFactory();
+
+            controllerLeft = renderer.xr.getController(0);
+            controllerLeft.addEventListener('selectstart', onTeleportSelectStart);
+            controllerLeft.addEventListener('connected', (event) => {
+                controllerLeft.add(buildController(event.data));
+            });
+            scene.add(controllerLeft);
+
+            const controllerGripLeft = renderer.xr.getControllerGrip(0);
+            controllerGripLeft.add(controllerModelFactory.createControllerModel(controllerGripLeft));
+            scene.add(controllerGripLeft);
+
+            controllerRight = renderer.xr.getController(1);
+            controllerRight.addEventListener('selectstart', onManipulationSelectStart);
+            controllerRight.addEventListener('connected', (event) => {
+                controllerRight.add(buildController(event.data));
+            });
+            controllerRight.addEventListener('squeezestart', onSqueezeStart);
+            controllerRight.addEventListener('squeezeend', onSqueezeEnd);
+            controllerRight.addEventListener('abuttondown', onAButtonPressed);
+            controllerRight.addEventListener('bbuttondown', onBButtonPressed);
+            controllerRight.addEventListener('xbuttondown', onXButtonPressed);
+            controllerRight.addEventListener('ybuttondown', onYButtonPressed);
+            scene.add(controllerRight);
+
+            const controllerGripRight = renderer.xr.getControllerGrip(1);
+            controllerGripRight.add(controllerModelFactory.createControllerModel(controllerGripRight));
+            scene.add(controllerGripRight);
+        }
+
+        function buildController(data) {
+            let geometry, material;
+            switch (data.targetRayMode) {
+                case 'tracked-pointer':
+                    geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
+                    geometry.setAttribute('color', new THREE.Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
+                    material = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending });
+                    return new THREE.Line(geometry, material);
+            }
+        }
+
+        function onTeleportSelectStart() {
+            // Teletransporte con el controlador izquierdo
+            console.log('Teletransporte activado');
+        }
+
+        function onManipulationSelectStart() {
+            // Manipulación de objetos con el controlador derecho
+            tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if (intersects.length > 0) {
+                selectedObject = intersects[0].object;
+                console.log('Objeto seleccionado:', selectedObject);
+            }
+        }
+
+        function onSqueezeStart() {
+            if (selectedObject) {
+                console.log('Objeto agarrado:', selectedObject);
+            }
+        }
+
+        function onSqueezeEnd() {
+            if (selectedObject) {
+                console.log('Objeto soltado:', selectedObject);
+                selectedObject = null;
+            }
+        }
+
+        function onAButtonPressed() {
+            // Activar/Desactivar la luz
+            directionalLight.visible = !directionalLight.visible;
+            console.log('Luz direccional:', directionalLight.visible ? 'Encendida' : 'Apagada');
+        }
+
+        function onBButtonPressed() {
+            // Iniciar animación
+            if (!animatedObject) {
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                animatedObject = new THREE.Mesh(geometry, material);
+                animatedObject.position.set(0, 1, -1);
+                scene.add(animatedObject);
+            }
+            console.log('Animación iniciada');
+            animatedObject.rotation.y += 0.1;
+        }
+
+        function onXButtonPressed() {
+            // Cargar un video de YouTube
+            if (!youtubePlane) {
+                const videoGeometry = new THREE.PlaneGeometry(4, 2.25);
+                const videoMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                youtubePlane = new THREE.Mesh(videoGeometry, videoMaterial);
+                youtubePlane.position.set(0, 2, -3);
+                scene.add(youtubePlane);
+                console.log('Video de YouTube cargado');
+            }
+        }
+
+        function onYButtonPressed() {
+            // Resetea la posición del objeto seleccionado
+            if (selectedObject) {
+                selectedObject.position.set(0, 0, -2);
+                console.log('Objeto reseteado:', selectedObject);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(() => {
+                renderer.render(scene, camera);
+            });
+        }
+
+    </script>
+</body>
+</html>
