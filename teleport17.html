@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>three.js VR - Meta Quest 3: Uso Completo de los Botones</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+
+        import * as THREE from 'three';
+
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        let camera, scene, renderer;
+        let controllerLeft, controllerRight;
+        let directionalLight, selectedObject;
+        const raycaster = new THREE.Raycaster();
+        const tempMatrix = new THREE.Matrix4();
+        let youtubePlane, animatedObject;
+        let controls;
+        let reticle;
+        let teleportMarker;
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x505050);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            const hemiLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
+            scene.add(hemiLight);
+
+            directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(1, 1, 1).normalize();
+            directionalLight.visible = false;
+            scene.add(directionalLight);
+
+            loadModels();
+            setupControllers();
+            setupTeleportMarker();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function loadModels() {
+            const loader = new GLTFLoader();
+            loader.load(
+                'https://xococode.github.io/BoomBox.glb',
+                (gltf) => {
+                    const boomBox = gltf.scene;
+                    boomBox.scale.set(10, 10, 10);
+                    boomBox.position.set(0, 0, -2);
+                    scene.add(boomBox);
+                },
+                undefined,
+                (error) => console.error('Error al cargar el modelo:', error)
+            );
+        }
+
+        function setupControllers() {
+            const controllerModelFactory = new XRControllerModelFactory();
+
+            // Controlador Izquierdo
+            controllerLeft = renderer.xr.getController(0);
+            controllerLeft.addEventListener('selectstart', onTeleportSelectStart);
+            controllerLeft.addEventListener('selectend', onTeleportSelectEnd);
+            controllerLeft.addEventListener('connected', (event) => {
+                controllerLeft.add(buildController(event.data));
+            });
+            scene.add(controllerLeft);
+
+            const controllerGripLeft = renderer.xr.getControllerGrip(0);
+            controllerGripLeft.add(controllerModelFactory.createControllerModel(controllerGripLeft));
+            scene.add(controllerGripLeft);
+
+            // Controlador Derecho
+            controllerRight = renderer.xr.getController(1);
+            controllerRight.addEventListener('selectstart', onManipulationSelectStart);
+            controllerRight.addEventListener('selectend', onManipulationSelectEnd);
+            controllerRight.addEventListener('squeezestart', onSqueezeStart);
+            controllerRight.addEventListener('squeezeend', onSqueezeEnd);
+            controllerRight.addEventListener('connected', (event) => {
+                controllerRight.add(buildController(event.data));
+            });
+            controllerRight.userData.selected = null;
+            scene.add(controllerRight);
+
+            const controllerGripRight = renderer.xr.getControllerGrip(1);
+            controllerGripRight.add(controllerModelFactory.createControllerModel(controllerGripRight));
+            scene.add(controllerGripRight);
+        }
+
+        function buildController(data) {
+            let geometry, material;
+            switch (data.targetRayMode) {
+                case 'tracked-pointer':
+                    geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
+                    geometry.setAttribute('color', new THREE.Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
+                    material = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending });
+                    return new THREE.Line(geometry, material);
+                case 'gaze':
+                    material = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                    return new THREE.Mesh(new THREE.RingGeometry(0.02, 0.04, 32), material);
+            }
+        }
+
+        function setupTeleportMarker() {
+            const geometry = new THREE.CircleGeometry(0.2, 32);
+            const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            teleportMarker = new THREE.Mesh(geometry, material);
+            teleportMarker.rotation.x = -Math.PI / 2;
+            teleportMarker.visible = false;
+            scene.add(teleportMarker);
+        }
+
+        function onTeleportSelectStart() {
+            // Teletransporte con el controlador izquierdo
+            tempMatrix.identity().extractRotation(controllerLeft.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controllerLeft.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if (intersects.length > 0) {
+                teleportMarker.position.copy(intersects[0].point);
+                teleportMarker.visible = true;
+            }
+        }
+
+        function onTeleportSelectEnd() {
+            if (teleportMarker.visible) {
+                const position = teleportMarker.position;
+                camera.position.set(position.x, position.y + 1.6, position.z);
+                teleportMarker.visible = false;
+            }
+        }
+
+        function onManipulationSelectStart() {
+            // Iniciar manipulación de objetos con el controlador derecho
+            tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                controllerRight.userData.selected = intersect.object;
+                scene.attach(controllerRight.userData.selected);
+            }
+        }
+
+        function onManipulationSelectEnd() {
+            // Soltar objeto manipulado
+            if (controllerRight.userData.selected) {
+                scene.attach(controllerRight.userData.selected);
+                controllerRight.userData.selected = null;
+            }
+        }
+
+        function onSqueezeStart() {
+            // Funcionalidad adicional para el botón "squeeze"
+            console.log('Squeeze Start');
+        }
+
+        function onSqueezeEnd() {
+            console.log('Squeeze End');
+        }
+
+        // Botones del controlador derecho
+        renderer.xr.addEventListener('sessionstart', () => {
+            const session = renderer.xr.getSession();
+            session.addEventListener('inputsourceschange', (event) => {
+                event.added.forEach((inputSource) => {
+                    if (inputSource.handedness === 'right') {
+                        inputSource.gamepad.buttons.forEach((button, index) => {
+                            button.addEventListener('touchstart', () => onButtonPressed(index));
+                        });
+                    }
+                });
+            });
+        });
+
+        function onButtonPressed(index) {
+            switch (index) {
+                case 1:
+                    onAButtonPressed();
+                    break;
+                case 2:
+                    onBButtonPressed();
+                    break;
+                case 3:
+                    onXButtonPressed();
+                    break;
+                case 4:
+                    onYButtonPressed();
+                    break;
+            }
+        }
+
+        function onAButtonPressed() {
+            // Activar/Desactivar la luz
+            directionalLight.visible = !directionalLight.visible;
+            console.log('Luz direccional:', directionalLight.visible ? 'Encendida' : 'Apagada');
+        }
+
+        function onBButtonPressed() {
+            // Iniciar animación
+            if (!animatedObject) {
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                animatedObject = new THREE.Mesh(geometry, material);
+                animatedObject.position.set(0, 1, -1);
+                scene.add(animatedObject);
+            }
+            console.log('Animación iniciada');
+            animatedObject.rotation.y += 0.1;
+        }
+
+        function onXButtonPressed() {
+            // Cargar y reproducir un video de YouTube
+            if (!youtubePlane) {
+                const video = document.createElement('video');
+                video.src = 'https://www.w3schools.com/html/mov_bbb.mp4'; // URL del video
+                video.crossOrigin = 'anonymous';
+                video.loop = true;
+                video.muted = true;
+                video.play();
+
+                const texture = new THREE.VideoTexture(video);
+                const videoGeometry = new THREE.PlaneGeometry(4, 2.25);
+                const videoMaterial = new THREE.MeshBasicMaterial({ map: texture });
+                youtubePlane = new THREE.Mesh(videoGeometry, videoMaterial);
+                youtubePlane.position.set(0, 2, -3);
+                scene.add(youtubePlane);
+                console.log('Video de YouTube cargado y reproduciendo');
+            }
+        }
+
+        function onYButtonPressed() {
+            // Mostrar menú interactivo
+            console.log('Menú interactivo activado');
+            // Implementación del menú...
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(() => {
+                handleController(controllerRight);
+                renderer.render(scene, camera);
+            });
+        }
+
+        function handleController(controller) {
+            if (controller.userData.selected) {
+                const object = controller.userData.selected;
+                object.position.setFromMatrixPosition(controller.matrixWorld);
+            }
+        }
+
+    </script>
+</body>
+</html>
