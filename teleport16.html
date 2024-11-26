@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <title>three.js VR - Meta Quest 3: Uso Completo de los Botones</title>
+    <title>three.js VR - Escena Completa con Funcionalidades Avanzadas</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
@@ -10,9 +10,50 @@
             overflow: hidden;
             font-family: sans-serif;
         }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
+        }
+        a {
+            color: #00aaff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        #buttons {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
+
+    <div id="info">
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Escena Completa con Funcionalidades Avanzadas
+    </div>
+
+    <div id="buttons">
+        <button id="toggleLightButton">Encender/Apagar Luz</button>
+        <button id="playVideoButton">Cargar Video</button>
+        <button id="startAnimationButton">Iniciar Animación</button>
+    </div>
 
     <!-- Import Map -->
     <script type="importmap">
@@ -28,98 +69,269 @@
 
         import * as THREE from 'three';
 
+        import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
         import { VRButton } from 'three/addons/webxr/VRButton.js';
         import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { TransformControls } from 'three/addons/controls/TransformControls.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { MeshBasicMaterial } from 'three';
 
+        // Variables globales
         let camera, scene, renderer;
-        let controllerLeft, controllerRight;
-        let directionalLight, selectedObject;
-        const raycaster = new THREE.Raycaster();
+        let controllerTeleport, controllerManipulation;
+        let controllerGripTeleport, controllerGripManipulation;
+        let room, marker, floor, baseReferenceSpace;
+        let raycaster = new THREE.Raycaster();
         const tempMatrix = new THREE.Matrix4();
-        let youtubePlane, animatedObject;
+
+        // Variables para manipular objetos
+        let selectedObject = null;
+        let transformControls;
+        let videoPlane = null; // Plane para el video
+        let animatedObject = null;
+        let directionalLight;
+
+        // Menú de Transformaciones
+        let transformMenu = null;
+        let isMenuVisible = false;
+
+        // Modelos cargados
+        let boomBoxes = [];
 
         init();
         animate();
 
         function init() {
+            // Configuración de la escena
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x505050);
 
+            // Configuración de la cámara
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 1.6, 3);
+            camera.position.set(0, 1.6, 3); // Altura estándar de VR
 
+            // Añadir iluminación
+            addLights();
+
+            // Crear la habitación
+            createRoom();
+
+            // Crear el piso
+            createFloor();
+
+            // Crear el marcador de teletransporte
+            createMarker();
+
+            // Configurar el renderizador
+            setupRenderer();
+
+            // Añadir controles de cámara para modo de escritorio
+            addOrbitControls();
+
+            // Cargar múltiples modelos 3D
+            loadModels();
+
+            // Configurar los controladores
+            setupControllers();
+
+            // Crear TransformControls
+            setupTransformControls();
+
+            // Crear el menú de transformaciones
+            createTransformMenu();
+
+            // Añadir el botón de VR
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            // Añadir eventos a los botones
+            setupButtons();
+
+            // Manejar el redimensionamiento de la ventana
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function addLights() {
+            const hemisphereLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
+            scene.add(hemisphereLight);
+
+            directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(1, 1, 1).normalize();
+            directionalLight.visible = false; // Inicialmente apagada
+            scene.add(directionalLight);
+        }
+
+        function createRoom() {
+            const roomGeometry = new BoxLineGeometry(10, 10, 10, 10, 10, 10).translate(0, 5, 0);
+            const roomMaterial = new THREE.LineBasicMaterial({ color: 0xbcbcbc });
+            room = new THREE.LineSegments(roomGeometry, roomMaterial);
+            scene.add(room);
+        }
+
+        function createFloor() {
+            const floorGeometry = new THREE.PlaneGeometry(8, 8, 2, 2).rotateX(-Math.PI / 2);
+            const floorMaterial = new THREE.MeshBasicMaterial({ color: 0xbcbcbc, transparent: true, opacity: 0.25 });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            scene.add(floor);
+        }
+
+        function createMarker() {
+            const markerGeometry = new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x0078ff });
+            marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.visible = false;
+            scene.add(marker);
+        }
+
+        function setupRenderer() {
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
+            renderer.xr.addEventListener('sessionstart', () => {
+                baseReferenceSpace = renderer.xr.getReferenceSpace();
+            });
             document.body.appendChild(renderer.domElement);
-            document.body.appendChild(VRButton.createButton(renderer));
+        }
 
-            const hemiLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
-            scene.add(hemiLight);
-
-            directionalLight = new THREE.DirectionalLight(0xffffff, 3);
-            directionalLight.position.set(1, 1, 1).normalize();
-            directionalLight.visible = false;
-            scene.add(directionalLight);
-
-            loadModels();
-            setupControllers();
-
-            window.addEventListener('resize', onWindowResize);
+        function addOrbitControls() {
+            const orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.target.set(0, 1.6, 0);
+            orbitControls.update();
         }
 
         function loadModels() {
             const loader = new GLTFLoader();
-            loader.load(
-                'https://xococode.github.io/BoomBox.glb',
-                (gltf) => {
-                    const boomBox = gltf.scene;
-                    boomBox.scale.set(10, 10, 10);
-                    boomBox.position.set(0, 0, -2);
-                    scene.add(boomBox);
-                },
-                undefined,
-                (error) => console.error('Error al cargar el modelo:', error)
-            );
+            const positions = [
+                { x: -2, y: 0, z: -2 },
+                { x: 2, y: 0, z: -2 },
+                { x: 0, y: 0, z: 2 },
+                { x: 3, y: 0, z: 3 },
+                { x: -3, y: 0, z: 3 }
+            ];
+            const scales = [
+                { x: 10, y: 10, z: 10 },
+                { x: 15, y: 15, z: 15 },
+                { x: 20, y: 20, z: 20 },
+                { x: 25, y: 25, z: 25 },
+                { x: 5, y: 5, z: 5 }
+            ];
+
+            for (let i = 0; i < positions.length; i++) {
+                loader.load(
+                    'https://xococode.github.io/BoomBox.glb',
+                    (gltf) => {
+                        const boomBox = gltf.scene.clone();
+                        boomBox.scale.set(scales[i].x, scales[i].y, scales[i].z);
+                        boomBox.position.set(positions[i].x, positions[i].y, positions[i].z);
+                        scene.add(boomBox);
+                        boomBoxes.push(boomBox);
+                    },
+                    undefined,
+                    (error) => {
+                        console.error('Error al cargar el modelo GLB:', error);
+                    }
+                );
+            }
         }
 
         function setupControllers() {
+            // Inicializar fábrica de modelos de controlador
             const controllerModelFactory = new XRControllerModelFactory();
 
-            controllerLeft = renderer.xr.getController(0);
-            controllerLeft.addEventListener('selectstart', onTeleportSelectStart);
-            controllerLeft.addEventListener('connected', (event) => {
-                controllerLeft.add(buildController(event.data));
+            // Controlador de teletransporte (izquierdo)
+            controllerTeleport = renderer.xr.getController(0);
+            controllerTeleport.addEventListener('selectstart', onTeleportSelectStart);
+            controllerTeleport.addEventListener('selectend', onTeleportSelectEnd);
+            controllerTeleport.addEventListener('connected', (event) => {
+                controllerTeleport.add(buildController(event.data));
             });
-            scene.add(controllerLeft);
-
-            const controllerGripLeft = renderer.xr.getControllerGrip(0);
-            controllerGripLeft.add(controllerModelFactory.createControllerModel(controllerGripLeft));
-            scene.add(controllerGripLeft);
-
-            controllerRight = renderer.xr.getController(1);
-            controllerRight.addEventListener('selectstart', onManipulationSelectStart);
-            controllerRight.addEventListener('connected', (event) => {
-                controllerRight.add(buildController(event.data));
+            controllerTeleport.addEventListener('disconnected', () => {
+                controllerTeleport.remove(controllerTeleport.children[0]);
             });
-            controllerRight.addEventListener('squeezestart', onSqueezeStart);
-            controllerRight.addEventListener('squeezeend', onSqueezeEnd);
-            controllerRight.addEventListener('abuttondown', onAButtonPressed);
-            controllerRight.addEventListener('bbuttondown', onBButtonPressed);
-            controllerRight.addEventListener('xbuttondown', onXButtonPressed);
-            controllerRight.addEventListener('ybuttondown', onYButtonPressed);
-            scene.add(controllerRight);
+            scene.add(controllerTeleport);
 
-            const controllerGripRight = renderer.xr.getControllerGrip(1);
-            controllerGripRight.add(controllerModelFactory.createControllerModel(controllerGripRight));
-            scene.add(controllerGripRight);
+            controllerGripTeleport = renderer.xr.getControllerGrip(0);
+            controllerGripTeleport.add(controllerModelFactory.createControllerModel(controllerGripTeleport));
+            scene.add(controllerGripTeleport);
+
+            // Controlador de manipulación (derecho)
+            controllerManipulation = renderer.xr.getController(1);
+            controllerManipulation.addEventListener('selectstart', onManipulationSelectStart);
+            controllerManipulation.addEventListener('selectend', onManipulationSelectEnd);
+            controllerManipulation.addEventListener('squeezestart', onSqueezeStart); // Evento para movimiento con squeeze
+            controllerManipulation.addEventListener('squeezeend', onSqueezeEnd);
+            controllerManipulation.addEventListener('connected', (event) => {
+                controllerManipulation.add(buildController(event.data));
+            });
+            controllerManipulation.addEventListener('disconnected', () => {
+                controllerManipulation.remove(controllerManipulation.children[0]);
+            });
+            controllerManipulation.addEventListener('select', onRightControllerSelect); // Añadir evento para selección
+            scene.add(controllerManipulation);
+
+            controllerGripManipulation = renderer.xr.getControllerGrip(1);
+            controllerGripManipulation.add(controllerModelFactory.createControllerModel(controllerGripManipulation));
+            scene.add(controllerGripManipulation);
+        }
+
+        function setupTransformControls() {
+            transformControls = new TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('dragging-changed', function (event) {
+                if (event.value) {
+                    renderer.xr.enabled = false;
+                } else {
+                    renderer.xr.enabled = true;
+                }
+            });
+            scene.add(transformControls);
+        }
+
+        function createTransformMenu() {
+            transformMenu = new THREE.Group();
+            transformMenu.visible = false;
+
+            const loader = new FontLoader();
+            loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
+                const options = ['Trasladar', 'Rotar', 'Escalar'];
+                const spacing = 0.5;
+                options.forEach((option, index) => {
+                    const textGeometry = new TextGeometry(option, {
+                        font: font,
+                        size: 0.2,
+                        height: 0.02,
+                    });
+                    const textMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                    const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+                    textMesh.position.set(-0.5, 0, -index * spacing);
+                    transformMenu.add(textMesh);
+                });
+            });
+
+            // Posicionar el menú delante de la cámara
+            transformMenu.position.set(0, 1.6, -2);
+            scene.add(transformMenu);
+        }
+
+        function setupButtons() {
+            document.getElementById('toggleLightButton').addEventListener('click', () => {
+                toggleLight();
+            });
+
+            document.getElementById('playVideoButton').addEventListener('click', () => {
+                playVideoAsTexture();
+            });
+
+            document.getElementById('startAnimationButton').addEventListener('click', () => {
+                startAnimation();
+            });
         }
 
         function buildController(data) {
             let geometry, material;
+
             switch (data.targetRayMode) {
                 case 'tracked-pointer':
                     geometry = new THREE.BufferGeometry();
@@ -127,77 +339,67 @@
                     geometry.setAttribute('color', new THREE.Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
                     material = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending });
                     return new THREE.Line(geometry, material);
+
+                case 'gaze':
+                    geometry = new THREE.RingGeometry(0.02, 0.04, 32).translate(0, 0, -1);
+                    material = new THREE.MeshBasicMaterial({ opacity: 0.5, transparent: true });
+                    return new THREE.Mesh(geometry, material);
             }
         }
 
         function onTeleportSelectStart() {
-            // Teletransporte con el controlador izquierdo
-            console.log('Teletransporte activado');
+            this.userData.isSelecting = true;
+        }
+
+        function onTeleportSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerTeleport && marker.visible) {
+                teleportTo(marker.position);
+                marker.visible = false;
+            }
         }
 
         function onManipulationSelectStart() {
-            // Manipulación de objetos con el controlador derecho
-            tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
-            raycaster.ray.origin.setFromMatrixPosition(controllerRight.matrixWorld);
+            this.userData.isSelecting = true;
+
+            // Realizar raycasting para detectar el objeto seleccionado
+            tempMatrix.identity().extractRotation(controllerManipulation.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controllerManipulation.matrixWorld);
             raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-            const intersects = raycaster.intersectObjects(scene.children, true);
+            const intersects = raycaster.intersectObjects(boomBoxes, true);
             if (intersects.length > 0) {
                 selectedObject = intersects[0].object;
-                console.log('Objeto seleccionado:', selectedObject);
+                transformControls.attach(selectedObject);
+            }
+        }
+
+        function onManipulationSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerManipulation) {
+                selectedObject = null;
+                transformControls.detach();
             }
         }
 
         function onSqueezeStart() {
             if (selectedObject) {
-                console.log('Objeto agarrado:', selectedObject);
+                this.userData.isSqueezing = true;
+                transformControls.enabled = true;
             }
         }
 
         function onSqueezeEnd() {
-            if (selectedObject) {
-                console.log('Objeto soltado:', selectedObject);
-                selectedObject = null;
-            }
+            this.userData.isSqueezing = false;
+            transformControls.enabled = false;
         }
 
-        function onAButtonPressed() {
-            // Activar/Desactivar la luz
-            directionalLight.visible = !directionalLight.visible;
-            console.log('Luz direccional:', directionalLight.visible ? 'Encendida' : 'Apagada');
-        }
-
-        function onBButtonPressed() {
-            // Iniciar animación
-            if (!animatedObject) {
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
-                const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-                animatedObject = new THREE.Mesh(geometry, material);
-                animatedObject.position.set(0, 1, -1);
-                scene.add(animatedObject);
-            }
-            console.log('Animación iniciada');
-            animatedObject.rotation.y += 0.1;
-        }
-
-        function onXButtonPressed() {
-            // Cargar un video de YouTube
-            if (!youtubePlane) {
-                const videoGeometry = new THREE.PlaneGeometry(4, 2.25);
-                const videoMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-                youtubePlane = new THREE.Mesh(videoGeometry, videoMaterial);
-                youtubePlane.position.set(0, 2, -3);
-                scene.add(youtubePlane);
-                console.log('Video de YouTube cargado');
-            }
-        }
-
-        function onYButtonPressed() {
-            // Resetea la posición del objeto seleccionado
-            if (selectedObject) {
-                selectedObject.position.set(0, 0, -2);
-                console.log('Objeto reseteado:', selectedObject);
-            }
+        function teleportTo(position) {
+            const offsetPosition = { x: -position.x, y: -position.y, z: -position.z, w: 1 };
+            const offsetRotation = new THREE.Quaternion();
+            const transform = new XRRigidTransform(offsetPosition, offsetRotation);
+            const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
+            renderer.xr.setReferenceSpace(teleportSpaceOffset);
         }
 
         function onWindowResize() {
@@ -207,9 +409,182 @@
         }
 
         function animate() {
-            renderer.setAnimationLoop(() => {
-                renderer.render(scene, camera);
-            });
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            // Actualizar teletransporte
+            updateTeleportation();
+
+            // Verificar estados de los botones
+            checkControllerButtons();
+
+            renderer.render(scene, camera);
+        }
+
+        function updateTeleportation() {
+            let intersection = null;
+
+            if (controllerTeleport.userData.isSelecting) {
+                tempMatrix.identity().extractRotation(controllerTeleport.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(controllerTeleport.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                const intersects = raycaster.intersectObject(floor);
+                if (intersects.length > 0) {
+                    intersection = intersects[0].point;
+                }
+            }
+
+            if (intersection) {
+                marker.position.copy(intersection);
+                marker.visible = true;
+            } else {
+                marker.visible = false;
+            }
+        }
+
+        function animateObject() {
+            if (animatedObject) {
+                animatedObject.rotation.y += 0.01;
+            }
+        }
+
+        // Nueva función para reproducir Video.mp4 como textura
+        function playVideoAsTexture() {
+            if (!videoPlane) {
+                // Crear el elemento de video
+                const video = document.createElement('video');
+                video.src = 'https://xococode.github.io/Video.mp4'; // Ruta al video
+                video.crossOrigin = 'anonymous'; // Asegura que se cargue correctamente si está en otro dominio
+                video.loop = true;
+                video.muted = true; // Opcional: silenciar el video
+                video.play();
+
+                // Crear una textura de video
+                const videoTexture = new THREE.VideoTexture(video);
+                videoTexture.minFilter = THREE.LinearFilter;
+                videoTexture.magFilter = THREE.LinearFilter;
+                videoTexture.format = THREE.RGBFormat;
+
+                // Crear un material con la textura del video
+                const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+
+                // Crear una geometría para mostrar el video
+                const videoGeometry = new THREE.PlaneGeometry(4, 2.25); // 16:9
+
+                // Crear el mesh y añadirlo a la escena
+                videoPlane = new THREE.Mesh(videoGeometry, videoMaterial);
+                videoPlane.position.set(0, 2, -3); // Posición frente a la cámara
+                scene.add(videoPlane);
+            }
+        }
+
+        function startAnimation() {
+            if (!animatedObject) {
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                animatedObject = new THREE.Mesh(geometry, material);
+                animatedObject.position.set(0, 1, 0);
+                scene.add(animatedObject);
+            }
+            animateObject();
+        }
+
+        // Función para verificar y manejar los botones A, B, X, Y
+        function checkControllerButtons() {
+            const session = renderer.xr.getSession();
+            if (session) {
+                session.inputSources.forEach((inputSource, index) => {
+                    if (inputSource.gamepad) {
+                        const gp = inputSource.gamepad;
+
+                        // Asumiendo un mapeo típico de Oculus Touch:
+                        // Controlador Izquierdo (index === 0): X (0), Y (1)
+                        // Controlador Derecho (index === 1): A (0), B (1)
+                        gp.buttons.forEach((button, btnIndex) => {
+                            if (button.pressed) {
+                                handleButtonPress(index, btnIndex);
+                            }
+                        });
+                    }
+                });
+            }
+        }
+
+        function handleButtonPress(controllerIndex, buttonIndex) {
+            if (controllerIndex === 1) { // Controlador Derecho
+                switch (buttonIndex) {
+                    case 0: // Botón A
+                        setTransformMode('translate');
+                        break;
+                    case 1: // Botón B
+                        setTransformMode('rotate');
+                        break;
+                }
+            }
+
+            if (controllerIndex === 0) { // Controlador Izquierdo
+                switch (buttonIndex) {
+                    case 0: // Botón X
+                        setTransformMode('scale');
+                        break;
+                    case 1: // Botón Y
+                        toggleTransformMenu();
+                        break;
+                }
+            }
+        }
+
+        function setTransformMode(mode) {
+            if (transformControls && selectedObject) {
+                transformControls.setMode(mode);
+                console.log(`Modo de transformación establecido a: ${mode}`);
+            }
+        }
+
+        function toggleTransformMenu() {
+            isMenuVisible = !isMenuVisible;
+            if (transformMenu) {
+                transformMenu.visible = isMenuVisible;
+                console.log(`Menú de transformaciones ${isMenuVisible ? 'visible' : 'oculto'}`);
+            }
+        }
+
+        function onRightControllerSelect() {
+            if (isMenuVisible && transformMenu) {
+                // Realizar raycasting para detectar la opción seleccionada en el menú
+                tempMatrix.identity().extractRotation(controllerManipulation.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(controllerManipulation.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                const intersects = raycaster.intersectObjects(transformMenu.children, true);
+                if (intersects.length > 0) {
+                    const selectedOption = intersects[0].object.geometry.parameters.text;
+                    const optionName = intersects[0].object.name || intersects[0].object.geometry.parameters.text;
+                    
+                    // Alternativamente, puedes identificar la opción por posición o índice
+                    // Aquí asumiremos que el orden es Trasladar, Rotar, Escalar
+                    const optionIndex = transformMenu.children.indexOf(intersects[0].object);
+                    switch (optionIndex) {
+                        case 0:
+                            setTransformMode('translate');
+                            break;
+                        case 1:
+                            setTransformMode('rotate');
+                            break;
+                        case 2:
+                            setTransformMode('scale');
+                            break;
+                    }
+
+                    // Ocultar el menú después de seleccionar
+                    toggleTransformMenu();
+                }
+            } else {
+                // Otra funcionalidad al seleccionar con el controlador derecho
+                playVideoAsTexture();
+            }
         }
 
     </script>
