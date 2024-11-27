@@ -306,8 +306,6 @@
                 const gamepad = controller.gamepad;
                 if (gamepad) {
                     // Detectar qué botón corresponde al grip
-                    // Puedes ajustar el índice del botón según tu controlador específico
-                    // Aquí asumimos que es el botón 4 (esto puede variar)
                     const gripButtonIndex = getGripButtonIndex(gamepad);
 
                     if (gripButtonIndex === -1) {
@@ -352,9 +350,6 @@
             controllers.forEach((controller, index) => {
                 const gamepad = controller.gamepad;
                 if (gamepad) {
-                    // Detectar qué botón corresponde al gatillo
-                    // Puedes ajustar el índice del botón según tu controlador específico
-                    // Aquí asumimos que es el botón 0
                     const triggerButtonIndex = getTriggerButtonIndex(gamepad);
 
                     if (triggerButtonIndex === -1) {
