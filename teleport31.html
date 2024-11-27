@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>three.js VR - Teleport y Manipulación de Objetos</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
+        }
+        a {
+            color: #00aaff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="info">
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Teleport y Manipulación de Objetos
+    </div>
+
+    <!-- Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+
+        import * as THREE from 'three';
+
+        import { BoxLineGeometry } from 'three/addons/geometries/BoxLineGeometry.js';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // Variables globales
+        let camera, scene, renderer;
+        let controllerTeleport, controllerManipulation;
+        let controllerGripTeleport, controllerGripManipulation;
+        let room, marker, floor, baseReferenceSpace;
+        let raycaster = new THREE.Raycaster();
+        const tempMatrix = new THREE.Matrix4();
+
+        // Variables para manipulación de objetos
+        let selectedObject = null;
+        let offset = new THREE.Vector3();
+        let intersectionPlane = new THREE.Plane();
+        let intersectionPoint = new THREE.Vector3();
+
+        // Modelo cargado
+        let boomBox;
+
+        // Variables para manejar el estado del grip y gatillo
+        let gripPressed = [false, false]; // [controlador izquierdo, derecho]
+        let triggerPressed = [false, false]; // [controlador izquierdo, derecho]
+
+        init();
+        animate();
+
+        function init() {
+            // Configuración de la escena
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x505050);
+
+            // Configuración de la cámara
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3); // Altura estándar de VR
+
+            // Añadir iluminación
+            addLights();
+
+            // Crear la habitación
+            createRoom();
+
+            // Crear el piso
+            createFloor();
+
+            // Crear el marcador de teletransporte
+            createMarker();
+
+            // Configurar el renderizador
+            setupRenderer();
+
+            // Añadir el botón de VR
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            // Cargar el modelo 3D
+            loadModel();
+
+            // Configurar los controladores
+            setupControllers();
+
+            // Manejar el redimensionamiento de la ventana
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function addLights() {
+            const hemisphereLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
+            scene.add(hemisphereLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+        }
+
+        function createRoom() {
+            const roomGeometry = new BoxLineGeometry(6, 6, 6, 10, 10, 10).translate(0, 3, 0);
+            const roomMaterial = new THREE.LineBasicMaterial({ color: 0xbcbcbc });
+            room = new THREE.LineSegments(roomGeometry, roomMaterial);
+            scene.add(room);
+        }
+
+        function createFloor() {
+            const floorGeometry = new THREE.PlaneGeometry(4.8, 4.8, 2, 2).rotateX(-Math.PI / 2);
+            const floorMaterial = new THREE.MeshBasicMaterial({ color: 0xbcbcbc, transparent: true, opacity: 0.25 });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            scene.add(floor);
+        }
+
+        function createMarker() {
+            const markerGeometry = new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x0078ff });
+            marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.visible = false;
+            scene.add(marker);
+        }
+
+        function setupRenderer() {
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            renderer.xr.addEventListener('sessionstart', () => {
+                baseReferenceSpace = renderer.xr.getReferenceSpace();
+            });
+            document.body.appendChild(renderer.domElement);
+        }
+
+        function loadModel() {
+            const loader = new GLTFLoader();
+            loader.load(
+                'https://xococode.github.io/BoomBox.glb',
+                (gltf) => {
+                    boomBox = gltf.scene;
+                    boomBox.scale.set(0.02, 0.02, 0.02); // Ajustar escala según sea necesario
+                    boomBox.position.set(0, 0, -1); // Posicionar delante del usuario
+                    scene.add(boomBox);
+                },
+                undefined,
+                (error) => {
+                    console.error('Error al cargar el modelo GLB:', error);
+                }
+            );
+        }
+
+        function setupControllers() {
+            // Inicializar fábrica de modelos de controlador
+            const controllerModelFactory = new XRControllerModelFactory();
+
+            // Controlador de teletransporte (izquierdo)
+            controllerTeleport = renderer.xr.getController(0);
+            controllerTeleport.addEventListener('connected', (event) => {
+                controllerTeleport.add(buildController(event.data));
+            });
+            controllerTeleport.addEventListener('disconnected', () => {
+                controllerTeleport.remove(controllerTeleport.children[0]);
+            });
+            scene.add(controllerTeleport);
+
+            controllerGripTeleport = renderer.xr.getControllerGrip(0);
+            controllerGripTeleport.add(controllerModelFactory.createControllerModel(controllerGripTeleport));
+            scene.add(controllerGripTeleport);
+
+            // Controlador de manipulación (derecho)
+            controllerManipulation = renderer.xr.getController(1);
+            controllerManipulation.addEventListener('connected', (event) => {
+                controllerManipulation.add(buildController(event.data));
+            });
+            controllerManipulation.addEventListener('disconnected', () => {
+                controllerManipulation.remove(controllerManipulation.children[0]);
+            });
+            scene.add(controllerManipulation);
+
+            controllerGripManipulation = renderer.xr.getControllerGrip(1);
+            controllerGripManipulation.add(controllerModelFactory.createControllerModel(controllerGripManipulation));
+            scene.add(controllerGripManipulation);
+        }
+
+        function buildController(data) {
+            let geometry, material;
+
+            switch (data.targetRayMode) {
+                case 'tracked-pointer':
+                    geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
+                    geometry.setAttribute('color', new THREE.Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
+                    material = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending });
+                    return new THREE.Line(geometry, material);
+
+                case 'gaze':
+                    geometry = new THREE.RingGeometry(0.02, 0.04, 32).translate(0, 0, -1);
+                    material = new THREE.MeshBasicMaterial({ opacity: 0.5, transparent: true });
+                    return new THREE.Mesh(geometry, material);
+            }
+        }
+
+        function onTeleportSelectStart() {
+            this.userData.isSelecting = true;
+        }
+
+        function onTeleportSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerTeleport && marker.visible) {
+                teleportTo(marker.position);
+                marker.visible = false;
+            }
+        }
+
+        function onManipulationSelectStart() {
+            this.userData.isSelecting = true;
+
+            if (boomBox) {
+                // Realizar raycasting para detectar intersección con el modelo
+                tempMatrix.identity().extractRotation(this.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                const intersects = raycaster.intersectObject(boomBox, true);
+
+                if (intersects.length > 0) {
+                    selectedObject = boomBox;
+                    // Definir el plano de intersección
+                    intersectionPlane.setFromNormalAndCoplanarPoint(
+                        new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion),
+                        intersects[0].point
+                    );
+                    // Calcular el offset
+                    if (intersectionPlane.intersectRay(raycaster.ray, intersectionPoint)) {
+                        offset.copy(intersectionPoint).sub(selectedObject.position);
+                    }
+                }
+            }
+        }
+
+        function onManipulationSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerManipulation) {
+                selectedObject = null;
+            }
+        }
+
+        function teleportTo(position) {
+            const offsetPosition = { x: -position.x, y: -position.y, z: -position.z, w: 1 };
+            const offsetRotation = new THREE.Quaternion();
+            const transform = new XRRigidTransform(offsetPosition, offsetRotation);
+            const teleportSpaceOffset = baseReferenceSpace.getOffsetReferenceSpace(transform);
+            renderer.xr.setReferenceSpace(teleportSpaceOffset);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            // Actualizar teletransporte
+            updateTeleportation();
+
+            // Actualizar manipulación de objetos
+            updateObjectManipulation();
+
+            // Manejar el input del grip
+            handleGripInput();
+
+            // Manejar el input del gatillo
+            handleTriggerInput();
+
+            // Manejar la rotación si hay un objeto seleccionado
+            if (selectedObject) {
+                handleJoystickRotation();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function updateTeleportation() {
+            let intersection = null;
+
+            if (controllerTeleport.userData.isSelecting) {
+                tempMatrix.identity().extractRotation(controllerTeleport.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(controllerTeleport.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                const intersects = raycaster.intersectObject(floor);
+                if (intersects.length > 0) {
+                    intersection = intersects[0].point;
+                }
+            }
+
+            if (intersection) {
+                marker.position.copy(intersection);
+                marker.visible = true;
+            } else {
+                marker.visible = false;
+            }
+        }
+
+        function updateObjectManipulation() {
+            if (selectedObject && controllerManipulation.userData.isSelecting) {
+                tempMatrix.identity().extractRotation(controllerManipulation.matrixWorld);
+                raycaster.ray.origin.setFromMatrixPosition(controllerManipulation.matrixWorld);
+                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+                if (raycaster.ray.intersectPlane(intersectionPlane, intersectionPoint)) {
+                    selectedObject.position.copy(intersectionPoint.sub(offset));
+                }
+            }
+        }
+
+        // Funciones para manejar el input del Grip
+        function handleGripInput() {
+            const controllers = [controllerGripTeleport, controllerGripManipulation];
+
+            controllers.forEach((controller, index) => {
+                const gamepad = controller.gamepad;
+                if (gamepad) {
+                    // El índice del botón del grip puede variar según el controlador
+                    // Aquí asumimos que es el botón 4 (A/B en Oculus, X/Y en otros)
+                    const grip = gamepad.buttons[4];
+                    if (grip && grip.pressed && !gripPressed[index]) {
+                        gripPressed[index] = true;
+                        onGripPressed(controller);
+                    }
+                    if ((!grip || !grip.pressed) && gripPressed[index]) {
+                        gripPressed[index] = false;
+                        onGripReleased(controller);
+                    }
+                }
+            });
+        }
+
+        function onGripPressed(controller) {
+            if (boomBox) {
+                // Alternar selección
+                if (selectedObject === boomBox) {
+                    selectedObject = null;
+                    console.log('Objeto deseleccionado');
+                } else {
+                    selectedObject = boomBox;
+                    console.log('Objeto seleccionado');
+                }
+            }
+        }
+
+        function onGripReleased(controller) {
+            // Opcional: acciones al soltar el grip
+        }
+
+        // Funciones para manejar el input del Gatillo
+        function handleTriggerInput() {
+            const controllers = [controllerTeleport, controllerManipulation];
+
+            controllers.forEach((controller, index) => {
+                const gamepad = controller.gamepad;
+                if (gamepad) {
+                    // El índice del gatillo puede variar; a menudo es el botón 0 o 1
+                    // Aquí asumimos que es el botón 0
+                    const trigger = gamepad.buttons[0];
+                    if (trigger.pressed && !triggerPressed[index]) {
+                        triggerPressed[index] = true;
+                        onTriggerPressed(controller);
+                    }
+                    if ((!trigger || !trigger.pressed) && triggerPressed[index]) {
+                        triggerPressed[index] = false;
+                        onTriggerReleased(controller);
+                    }
+                }
+            });
+        }
+
+        function onTriggerPressed(controller) {
+            if (selectedObject) {
+                // Implementa la lógica de movimiento continua si lo deseas
+                console.log('Gatillo presionado: moviendo objeto');
+                // Por ejemplo, podrías mover el objeto hacia la dirección del controlador
+                const moveDistance = 0.02; // Ajusta la distancia de movimiento
+                const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion);
+                selectedObject.position.add(direction.multiplyScalar(moveDistance));
+            }
+        }
+
+        function onTriggerReleased(controller) {
+            if (selectedObject) {
+                console.log('Gatillo liberado: detener movimiento');
+                // Implementa la lógica para detener el movimiento si lo implementaste
+            }
+        }
+
+        // Funciones para manejar la rotación con el Joystick
+        function handleJoystickRotation() {
+            // Asumimos que solo queremos usar el controlador de manipulación (derecho) para rotar
+            const controller = controllerManipulation;
+            const gamepad = controller.gamepad;
+
+            if (gamepad) {
+                const axes = gamepad.axes; // [x, y, ...]
+                // Los ejes pueden variar; típicamente, los ejes 2 y 3 son el joystick derecho
+                // Ajusta según tu controlador específico
+                const joystickX = axes[2]; // Rotación alrededor del eje Y
+                const joystickY = axes[3]; // Rotación alrededor del eje X
+
+                const rotationSpeed = 0.05; // Ajusta la velocidad de rotación según necesites
+
+                if (Math.abs(joystickX) > 0.1) {
+                    selectedObject.rotation.y += joystickX * rotationSpeed;
+                }
+
+                if (Math.abs(joystickY) > 0.1) {
+                    selectedObject.rotation.x += joystickY * rotationSpeed;
+                }
+            }
+        }
+
+    </script>
+</body>
+</html>
