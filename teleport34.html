@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXR Planet Interaction</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { XRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/XRButton.js';
+
+    // Configuración de la escena
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 3); // Posición inicial del usuario.
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
+    document.body.appendChild(XRButton.createButton(renderer));
+
+    // Luz
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+    light.position.set(0, 1, 0);
+    scene.add(light);
+
+    // Planetas (esferas)
+    const planets = [];
+
+    // Crear un nuevo planeta
+    function createPlanet() {
+      const geometry = new THREE.SphereGeometry(Math.random() * 0.5 + 0.2, 32, 32);
+      const material = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff });
+      const planet = new THREE.Mesh(geometry, material);
+
+      // Posición inicial aleatoria
+      planet.position.set(
+        Math.random() * 2 - 1, // Entre -1 y 1 en X
+        Math.random() * 2 + 1, // Entre 1 y 3 en Y
+        Math.random() * -3 - 1 // Entre -1 y -4 en Z
+      );
+
+      scene.add(planet);
+      planets.push(planet);
+    }
+
+    // Cambiar el tamaño de los planetas
+    function scalePlanets() {
+      planets.forEach(planet => {
+        const scaleFactor = Math.random() * 0.5 + 0.8; // Cambiar entre 0.8 y 1.3
+        planet.scale.set(scaleFactor, scaleFactor, scaleFactor);
+      });
+    }
+
+    // Rotar los planetas
+    function rotatePlanets() {
+      planets.forEach(planet => {
+        planet.rotation.x += Math.random() * 0.2;
+        planet.rotation.y += Math.random() * 0.2;
+      });
+    }
+
+    // Mover los planetas a una posición aleatoria
+    function movePlanets() {
+      planets.forEach(planet => {
+        planet.position.x += Math.random() * 0.5 - 0.25;
+        planet.position.y += Math.random() * 0.5 - 0.25;
+        planet.position.z += Math.random() * 0.5 - 0.25;
+      });
+    }
+
+    // Eliminar el planeta más cercano al usuario
+    function removeClosestPlanet() {
+      if (planets.length === 0) return;
+
+      let closestPlanet = null;
+      let minDistance = Infinity;
+
+      planets.forEach(planet => {
+        const distance = camera.position.distanceTo(planet.position);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestPlanet = planet;
+        }
+      });
+
+      if (closestPlanet) {
+        scene.remove(closestPlanet);
+        planets.splice(planets.indexOf(closestPlanet), 1);
+      }
+    }
+
+    // Variables para los controladores
+    const controllers = [];
+
+    // Crear controladores XR
+    function buildController(index) {
+      const controller = renderer.xr.getController(index);
+
+      // Asignar eventos a los botones
+      controller.addEventListener('selectstart', () => createPlanet());
+      controller.addEventListener('squeezestart', () => scalePlanets());
+      controller.addEventListener('selectend', () => console.log(`Trigger liberado en el controlador ${index}`));
+
+      scene.add(controller);
+      controllers[index] = controller;
+    }
+
+    // Detectar los controladores al iniciar la sesión XR
+    renderer.xr.addEventListener('sessionstart', () => {
+      for (let i = 0; i < 2; i++) buildController(i);
+    });
+
+    // Actualizar el estado de los botones del gamepad
+    function updateGamepadButtons(controller, index) {
+      const gamepad = controller.inputSource.gamepad;
+      if (!gamepad) return;
+
+      gamepad.buttons.forEach((button, buttonIndex) => {
+        if (button.pressed) {
+          switch (buttonIndex) {
+            case 0:
+              console.log(`Trigger presionado en el controlador ${index}`);
+              createPlanet();
+              break;
+            case 1:
+              console.log(`Grip presionado en el controlador ${index}`);
+              scalePlanets();
+              break;
+            case 2:
+              console.log(`ButtonA presionado en el controlador ${index}`);
+              rotatePlanets();
+              break;
+            case 3:
+              console.log(`ButtonB presionado en el controlador ${index}`);
+              movePlanets();
+              break;
+            case 4:
+              console.log(`ButtonX presionado en el controlador ${index}`);
+              removeClosestPlanet();
+              break;
+            case 5:
+              console.log(`ButtonY presionado en el controlador ${index}`);
+              rotatePlanets();
+              break;
+            default:
+              console.log(`Botón ${buttonIndex} presionado en el controlador ${index}`);
+          }
+        }
+      });
+    }
+
+    // Animación
+    function animate() {
+      renderer.setAnimationLoop(() => {
+        controllers.forEach((controller, index) => {
+          updateGamepadButtons(controller, index);
+        });
+        renderer.render(scene, camera);
+      });
+    }
+
+    animate();
+  </script>
+</body>
+</html>
