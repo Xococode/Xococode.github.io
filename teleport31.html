@@ -225,51 +225,6 @@
             }
         }
 
-        function onTeleportSelectStart() {
-            this.userData.isSelecting = true;
-        }
-
-        function onTeleportSelectEnd() {
-            this.userData.isSelecting = false;
-            if (this === controllerTeleport && marker.visible) {
-                teleportTo(marker.position);
-                marker.visible = false;
-            }
-        }
-
-        function onManipulationSelectStart() {
-            this.userData.isSelecting = true;
-
-            if (boomBox) {
-                // Realizar raycasting para detectar intersección con el modelo
-                tempMatrix.identity().extractRotation(this.matrixWorld);
-                raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
-                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-
-                const intersects = raycaster.intersectObject(boomBox, true);
-
-                if (intersects.length > 0) {
-                    selectedObject = boomBox;
-                    // Definir el plano de intersección
-                    intersectionPlane.setFromNormalAndCoplanarPoint(
-                        new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion),
-                        intersects[0].point
-                    );
-                    // Calcular el offset
-                    if (intersectionPlane.intersectRay(raycaster.ray, intersectionPoint)) {
-                        offset.copy(intersectionPoint).sub(selectedObject.position);
-                    }
-                }
-            }
-        }
-
-        function onManipulationSelectEnd() {
-            this.userData.isSelecting = false;
-            if (this === controllerManipulation) {
-                selectedObject = null;
-            }
-        }
-
         function teleportTo(position) {
             const offsetPosition = { x: -position.x, y: -position.y, z: -position.z, w: 1 };
             const offsetRotation = new THREE.Quaternion();
@@ -350,10 +305,18 @@
             controllers.forEach((controller, index) => {
                 const gamepad = controller.gamepad;
                 if (gamepad) {
-                    // El índice del botón del grip puede variar según el controlador
-                    // Aquí asumimos que es el botón 4 (A/B en Oculus, X/Y en otros)
-                    const grip = gamepad.buttons[4];
-                    if (grip && grip.pressed && !gripPressed[index]) {
+                    // Detectar qué botón corresponde al grip
+                    // Puedes ajustar el índice del botón según tu controlador específico
+                    // Aquí asumimos que es el botón 4 (esto puede variar)
+                    const gripButtonIndex = getGripButtonIndex(gamepad);
+
+                    if (gripButtonIndex === -1) {
+                        console.warn('Grip button not found for this controller.');
+                        return;
+                    }
+
+                    const grip = gamepad.buttons[gripButtonIndex];
+                    if (grip.pressed && !gripPressed[index]) {
                         gripPressed[index] = true;
                         onGripPressed(controller);
                     }
@@ -389,9 +352,17 @@
             controllers.forEach((controller, index) => {
                 const gamepad = controller.gamepad;
                 if (gamepad) {
-                    // El índice del gatillo puede variar; a menudo es el botón 0 o 1
+                    // Detectar qué botón corresponde al gatillo
+                    // Puedes ajustar el índice del botón según tu controlador específico
                     // Aquí asumimos que es el botón 0
-                    const trigger = gamepad.buttons[0];
+                    const triggerButtonIndex = getTriggerButtonIndex(gamepad);
+
+                    if (triggerButtonIndex === -1) {
+                        console.warn('Trigger button not found for this controller.');
+                        return;
+                    }
+
+                    const trigger = gamepad.buttons[triggerButtonIndex];
                     if (trigger.pressed && !triggerPressed[index]) {
                         triggerPressed[index] = true;
                         onTriggerPressed(controller);
@@ -406,9 +377,7 @@
 
         function onTriggerPressed(controller) {
             if (selectedObject) {
-                // Implementa la lógica de movimiento continua si lo deseas
-                console.log('Gatillo presionado: moviendo objeto');
-                // Por ejemplo, podrías mover el objeto hacia la dirección del controlador
+                // Mover el objeto en la dirección del controlador
                 const moveDistance = 0.02; // Ajusta la distancia de movimiento
                 const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion);
                 selectedObject.position.add(direction.multiplyScalar(moveDistance));
@@ -418,7 +387,7 @@
         function onTriggerReleased(controller) {
             if (selectedObject) {
                 console.log('Gatillo liberado: detener movimiento');
-                // Implementa la lógica para detener el movimiento si lo implementaste
+                // Implementa la lógica para detener el movimiento si lo deseas
             }
         }
 
@@ -430,21 +399,65 @@
 
             if (gamepad) {
                 const axes = gamepad.axes; // [x, y, ...]
-                // Los ejes pueden variar; típicamente, los ejes 2 y 3 son el joystick derecho
-                // Ajusta según tu controlador específico
-                const joystickX = axes[2]; // Rotación alrededor del eje Y
-                const joystickY = axes[3]; // Rotación alrededor del eje X
+                // Detectar qué ejes corresponden al joystick
+                const joystick = getJoystickIndices(gamepad);
+                if (!joystick) {
+                    console.warn('Joystick axes not found for this controller.');
+                    return;
+                }
+
+                const [joystickX, joystickY] = joystick;
 
                 const rotationSpeed = 0.05; // Ajusta la velocidad de rotación según necesites
 
-                if (Math.abs(joystickX) > 0.1) {
-                    selectedObject.rotation.y += joystickX * rotationSpeed;
+                const joystickValueX = axes[joystickX];
+                const joystickValueY = axes[joystickY];
+
+                if (Math.abs(joystickValueX) > 0.1) {
+                    selectedObject.rotation.y += joystickValueX * rotationSpeed;
                 }
 
-                if (Math.abs(joystickY) > 0.1) {
-                    selectedObject.rotation.x += joystickY * rotationSpeed;
+                if (Math.abs(joystickValueY) > 0.1) {
+                    selectedObject.rotation.x += joystickValueY * rotationSpeed;
                 }
             }
+        }
+
+        // Función para obtener el índice del botón Grip según el controlador
+        function getGripButtonIndex(gamepad) {
+            // Puedes ajustar esta función según tu controlador específico
+            // Aquí intentamos varios índices comunes
+            const possibleIndices = [4, 1, 5]; // Ajusta según sea necesario
+            for (let index of possibleIndices) {
+                if (gamepad.buttons[index] !== undefined) {
+                    return index;
+                }
+            }
+            return -1; // No encontrado
+        }
+
+        // Función para obtener el índice del botón Trigger según el controlador
+        function getTriggerButtonIndex(gamepad) {
+            // Puedes ajustar esta función según tu controlador específico
+            // Aquí intentamos varios índices comunes
+            const possibleIndices = [0, 1]; // Ajusta según sea necesario
+            for (let index of possibleIndices) {
+                if (gamepad.buttons[index] !== undefined) {
+                    return index;
+                }
+            }
+            return -1; // No encontrado
+        }
+
+        // Función para obtener los índices del joystick según el controlador
+        function getJoystickIndices(gamepad) {
+            // Puedes ajustar esta función según tu controlador específico
+            // Aquí asumimos que el joystick derecho corresponde a los ejes 2 y 3
+            // Verifica con tu controlador si estos índices son correctos
+            if (gamepad.axes.length >= 4) {
+                return [2, 3];
+            }
+            return null; // No encontrado
         }
 
     </script>
