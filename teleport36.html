@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXR Energy Balls</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { XRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/XRButton.js';
+
+    // Configuración de la escena
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 5); // Altura del usuario.
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
+    document.body.appendChild(XRButton.createButton(renderer));
+
+    // Luz
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+    light.position.set(0, 1, 0);
+    scene.add(light);
+
+    // Fondo de la sala
+    const roomGeometry = new THREE.BoxGeometry(10, 10, 10);
+    const roomMaterial = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      side: THREE.BackSide,
+    });
+    const room = new THREE.Mesh(roomGeometry, roomMaterial);
+    scene.add(room);
+
+    // Bolas de energía
+    const balls = [];
+    const ballVelocities = [];
+
+    function createEnergyBall() {
+      const ballGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+      const ballMaterial = new THREE.MeshStandardMaterial({
+        emissive: Math.random() * 0xffffff,
+        color: 0x000000,
+        emissiveIntensity: 1,
+      });
+      const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+
+      // Posición inicial aleatoria
+      ball.position.set(
+        Math.random() * 6 - 3, // Entre -3 y 3 en X
+        Math.random() * 6 - 3, // Entre -3 y 3 en Y
+        Math.random() * 6 - 3  // Entre -3 y 3 en Z
+      );
+
+      // Velocidad inicial aleatoria
+      const velocity = new THREE.Vector3(
+        Math.random() * 0.05 - 0.025,
+        Math.random() * 0.05 - 0.025,
+        Math.random() * 0.05 - 0.025
+      );
+
+      scene.add(ball);
+      balls.push(ball);
+      ballVelocities.push(velocity);
+    }
+
+    // Crear bolas iniciales
+    for (let i = 0; i < 5; i++) {
+      createEnergyBall();
+    }
+
+    // Interacción con las bolas
+    function changeBallColors() {
+      balls.forEach(ball => {
+        ball.material.emissive.setHex(Math.random() * 0xffffff);
+      });
+    }
+
+    function reverseBallDirections() {
+      ballVelocities.forEach(velocity => {
+        velocity.multiplyScalar(-1);
+      });
+    }
+
+    function increaseBallSpeed() {
+      ballVelocities.forEach(velocity => {
+        velocity.multiplyScalar(1.2);
+      });
+    }
+
+    function decreaseBallSpeed() {
+      ballVelocities.forEach(velocity => {
+        velocity.multiplyScalar(0.8);
+      });
+    }
+
+    function removeBall() {
+      if (balls.length === 0) return;
+
+      const ballToRemove = balls.pop();
+      const velocityToRemove = ballVelocities.pop();
+
+      scene.remove(ballToRemove);
+      console.log(`Bola eliminada con velocidad: ${velocityToRemove.length()}`);
+    }
+
+    // Controladores XR
+    const controllers = [];
+
+    function buildController(index) {
+      const controller = renderer.xr.getController(index);
+
+      // Asignar eventos
+      controller.addEventListener('selectstart', () => createEnergyBall());
+      controller.addEventListener('squeezestart', () => reverseBallDirections());
+      controller.addEventListener('selectend', () => console.log(`Trigger liberado en el controlador ${index}`));
+
+      scene.add(controller);
+      controllers[index] = controller;
+    }
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      for (let i = 0; i < 2; i++) buildController(i);
+    });
+
+    // Actualizar botones del gamepad
+    function updateGamepadButtons(controller, index) {
+      const gamepad = controller.inputSource.gamepad;
+      if (!gamepad) return;
+
+      gamepad.buttons.forEach((button, buttonIndex) => {
+        if (button.pressed) {
+          switch (buttonIndex) {
+            case 0:
+              console.log(`Trigger presionado en el controlador ${index}`);
+              createEnergyBall();
+              break;
+            case 1:
+              console.log(`Grip presionado en el controlador ${index}`);
+              reverseBallDirections();
+              break;
+            case 2:
+              console.log(`ButtonA presionado en el controlador ${index}`);
+              changeBallColors();
+              break;
+            case 3:
+              console.log(`ButtonB presionado en el controlador ${index}`);
+              increaseBallSpeed();
+              break;
+            case 4:
+              console.log(`ButtonX presionado en el controlador ${index}`);
+              decreaseBallSpeed();
+              break;
+            case 5:
+              console.log(`ButtonY presionado en el controlador ${index}`);
+              removeBall();
+              break;
+            default:
+              console.log(`Botón ${buttonIndex} presionado en el controlador ${index}`);
+          }
+        }
+      });
+    }
+
+    // Animación
+    function animate() {
+      // Actualizar posiciones de las bolas
+      balls.forEach((ball, index) => {
+        ball.position.add(ballVelocities[index]);
+
+        // Rebote dentro de la sala
+        ['x', 'y', 'z'].forEach(axis => {
+          if (ball.position[axis] > 4.5 || ball.position[axis] < -4.5) {
+            ballVelocities[index][axis] *= -1; // Invertir dirección
+          }
+        });
+      });
+
+      renderer.setAnimationLoop(() => {
+        controllers.forEach((controller, index) => {
+          updateGamepadButtons(controller, index);
+        });
+        renderer.render(scene, camera);
+      });
+    }
+
+    animate();
+  </script>
+</body>
+</html>
