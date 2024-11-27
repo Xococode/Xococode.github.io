@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXR Interactive Scene</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { XRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/XRButton.js';
+
+    // Configuración de la escena
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 3);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
+    document.body.appendChild(XRButton.createButton(renderer));
+
+    // Luz
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+    light.position.set(0, 1, 0);
+    scene.add(light);
+
+    // Esferas interactuables
+    const spheres = [];
+    for (let i = -2; i <= 2; i++) {
+      const geometry = new THREE.SphereGeometry(0.2, 32, 32);
+      const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+      const sphere = new THREE.Mesh(geometry, material);
+      sphere.position.set(i, 1.5, -2);
+      scene.add(sphere);
+      spheres.push(sphere);
+    }
+
+    // Variables para los controladores
+    const controllers = [];
+
+    // Crear controladores XR
+    function buildController(index) {
+      const controller = renderer.xr.getController(index);
+
+      // Asignar eventos
+      controller.addEventListener('selectstart', () => changeSphereColor(index));
+      controller.addEventListener('selectend', () => console.log(`Trigger liberado en el controlador ${index}`));
+      controller.addEventListener('squeezestart', () => moveSpheres(index));
+      controller.addEventListener('squeezeend', () => console.log(`Grip liberado en el controlador ${index}`));
+
+      scene.add(controller);
+      controllers[index] = controller;
+    }
+
+    // Registrar controladores al iniciar la sesión XR
+    renderer.xr.addEventListener('sessionstart', () => {
+      for (let i = 0; i < 2; i++) buildController(i);
+    });
+
+    // Función: Cambiar color de las esferas
+    function changeSphereColor(index) {
+      console.log(`Cambiando color de las esferas desde el controlador ${index}`);
+      spheres.forEach(sphere => {
+        sphere.material.color.setHex(Math.random() * 0xffffff);
+      });
+    }
+
+    // Función: Mover las esferas hacia el usuario
+    function moveSpheres(index) {
+      console.log(`Moviendo las esferas hacia el controlador ${index}`);
+      spheres.forEach(sphere => {
+        sphere.position.z += 0.2; // Mover hacia el usuario
+      });
+    }
+
+    // Función: Eliminar la esfera más cercana al usuario
+    function removeClosestSphere(index) {
+      console.log(`Eliminando la esfera más cercana desde el controlador ${index}`);
+      let closestSphere = null;
+      let minDistance = Infinity;
+
+      spheres.forEach(sphere => {
+        const distance = camera.position.distanceTo(sphere.position);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestSphere = sphere;
+        }
+      });
+
+      if (closestSphere) {
+        scene.remove(closestSphere);
+        const sphereIndex = spheres.indexOf(closestSphere);
+        spheres.splice(sphereIndex, 1);
+      }
+    }
+
+    // Actualización de botones del gamepad
+    function updateGamepadButtons(controller, index) {
+      const gamepad = controller.inputSource.gamepad;
+      if (!gamepad) return;
+
+      // Acceso a botones
+      gamepad.buttons.forEach((button, buttonIndex) => {
+        if (button.pressed) {
+          switch (buttonIndex) {
+            case 0:
+              console.log(`Trigger presionado en el controlador ${index}`);
+              changeSphereColor(index);
+              break;
+            case 1:
+              console.log(`Grip presionado en el controlador ${index}`);
+              moveSpheres(index);
+              break;
+            case 2:
+              console.log(`ButtonA presionado en el controlador ${index}`);
+              removeClosestSphere(index);
+              break;
+            case 3:
+              console.log(`ButtonB presionado en el controlador ${index}`);
+              changeSphereColor(index);
+              break;
+            case 4:
+              console.log(`ButtonX presionado en el controlador ${index}`);
+              moveSpheres(index);
+              break;
+            case 5:
+              console.log(`ButtonY presionado en el controlador ${index}`);
+              removeClosestSphere(index);
+              break;
+            default:
+              console.log(`Botón ${buttonIndex} presionado en el controlador ${index}`);
+          }
+        }
+      });
+    }
+
+    // Animación
+    function animate() {
+      renderer.setAnimationLoop(() => {
+        // Actu
