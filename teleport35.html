@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXR Floating Cars</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { XRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/XRButton.js';
+
+    // Configuración de la escena
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 5); // Altura del usuario.
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    document.body.appendChild(renderer.domElement);
+    document.body.appendChild(XRButton.createButton(renderer));
+
+    // Luz
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+    light.position.set(0, 1, 0);
+    scene.add(light);
+
+    // Creación de una pista
+    const trackGeometry = new THREE.TorusGeometry(5, 0.1, 16, 100);
+    const trackMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+    const track = new THREE.Mesh(trackGeometry, trackMaterial);
+    track.rotation.x = Math.PI / 2; // Girar para que quede plano.
+    scene.add(track);
+
+    // Creación de autos flotantes
+    const cars = [];
+    const carSpeeds = [];
+
+    function createCar() {
+      const carGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.3);
+      const carMaterial = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff });
+      const car = new THREE.Mesh(carGeometry, carMaterial);
+
+      // Posición inicial aleatoria en la pista
+      const angle = Math.random() * Math.PI * 2;
+      car.position.set(Math.cos(angle) * 5, 0.3, Math.sin(angle) * 5);
+      car.userData.angle = angle; // Almacena el ángulo actual.
+      scene.add(car);
+      cars.push(car);
+      carSpeeds.push(0.01 + Math.random() * 0.02); // Velocidad inicial aleatoria.
+    }
+
+    // Crear 5 autos iniciales
+    for (let i = 0; i < 5; i++) {
+      createCar();
+    }
+
+    // Funciones para interactuar con los autos
+    function increaseSpeed() {
+      carSpeeds.forEach((speed, index) => {
+        carSpeeds[index] = Math.min(speed + 0.01, 0.1); // Incrementa hasta un límite.
+      });
+    }
+
+    function decreaseSpeed() {
+      carSpeeds.forEach((speed, index) => {
+        carSpeeds[index] = Math.max(speed - 0.01, 0.01); // Reduce hasta un límite.
+      });
+    }
+
+    function changeCarColors() {
+      cars.forEach(car => {
+        car.material.color.setHex(Math.random() * 0xffffff);
+      });
+    }
+
+    function resetCarPositions() {
+      cars.forEach(car => {
+        const angle = Math.random() * Math.PI * 2;
+        car.position.set(Math.cos(angle) * 5, 0.3, Math.sin(angle) * 5);
+        car.userData.angle = angle; // Restablece el ángulo.
+      });
+    }
+
+    function removeCar() {
+      if (cars.length > 0) {
+        const carToRemove = cars.pop(); // Eliminar el último auto.
+        const speedToRemove = carSpeeds.pop();
+        scene.remove(carToRemove);
+        console.log(`Auto eliminado con velocidad: ${speedToRemove}`);
+      }
+    }
+
+    // Controladores XR
+    const controllers = [];
+
+    function buildController(index) {
+      const controller = renderer.xr.getController(index);
+
+      // Asignar eventos
+      controller.addEventListener('selectstart', () => increaseSpeed());
+      controller.addEventListener('squeezestart', () => decreaseSpeed());
+      controller.addEventListener('selectend', () => console.log(`Trigger liberado en el controlador ${index}`));
+
+      scene.add(controller);
+      controllers[index] = controller;
+    }
+
+    renderer.xr.addEventListener('sessionstart', () => {
+      for (let i = 0; i < 2; i++) buildController(i);
+    });
+
+    // Actualización de botones de los controladores
+    function updateGamepadButtons(controller, index) {
+      const gamepad = controller.inputSource.gamepad;
+      if (!gamepad) return;
+
+      gamepad.buttons.forEach((button, buttonIndex) => {
+        if (button.pressed) {
+          switch (buttonIndex) {
+            case 0:
+              console.log(`Trigger presionado en el controlador ${index}`);
+              increaseSpeed();
+              break;
+            case 1:
+              console.log(`Grip presionado en el controlador ${index}`);
+              decreaseSpeed();
+              break;
+            case 2:
+              console.log(`ButtonA presionado en el controlador ${index}`);
+              changeCarColors();
+              break;
+            case 3:
+              console.log(`ButtonB presionado en el controlador ${index}`);
+              resetCarPositions();
+              break;
+            case 4:
+              console.log(`ButtonX presionado en el controlador ${index}`);
+              removeCar();
+              break;
+            default:
+              console.log(`Botón ${buttonIndex} presionado en el controlador ${index}`);
+          }
+        }
+      });
+    }
+
+    // Animación
+    function animate() {
+      // Actualizar posiciones de los autos
+      cars.forEach((car, index) => {
+        car.userData.angle += carSpeeds[index];
+        car.position.set(Math.cos(car.userData.angle) * 5, 0.3, Math.sin(car.userData.angle) * 5);
+      });
+
+      renderer.setAnimationLoop(() => {
+        controllers.forEach((controller, index) => {
+          updateGamepadButtons(controller, index);
+        });
+        renderer.render(scene, camera);
+      });
+    }
+
+    animate();
+  </script>
+</body>
+</html>
