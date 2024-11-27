@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>three.js VR - Interacciones Avanzadas</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="info">
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Interacciones Avanzadas
+    </div>
+
+    <!-- Import Map para gestionar módulos -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- Importación de cannon-es para física -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js';
+
+        // Variables globales
+        let camera, scene, renderer;
+        let controls;
+        let raycaster = new THREE.Raycaster();
+        let tempMatrix = new THREE.Matrix4();
+        let marker;
+        let floor;
+
+        // Controladores VR
+        let controllerTeleport, controllerManipulation;
+        let controllerGripTeleport, controllerGripManipulation;
+        const controllerModelFactory = new XRControllerModelFactory();
+
+        // Grupos de objetos y física
+        const objects = []; // Almacena objetos Three.js
+        const physicsObjects = []; // Almacena cuerpos de Cannon.js
+
+        // Física
+        const world = new CANNON.World({
+            gravity: new CANNON.Vec3(0, -9.82, 0) // Gravedad en Y negativa
+        });
+
+        // Material de contacto
+        const defaultMaterial = new CANNON.Material('default');
+        const contactMaterial = new CANNON.ContactMaterial(
+            defaultMaterial,
+            defaultMaterial,
+            {
+                friction: 0.4,
+                restitution: 0.3
+            }
+        );
+        world.defaultContactMaterial = contactMaterial;
+
+        // Variables de selección
+        let selectedObject = null;
+        let grabbed = false;
+
+        // Inicialización
+        init();
+        animate();
+
+        function init() {
+            // Crear la escena
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x505050);
+
+            // Cámara
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3); // Altura estándar en VR
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Botón de VR
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            // Controles para escritorio
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 1.6, 0);
+            controls.update();
+
+            // Iluminación
+            const hemisphereLight = new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3);
+            scene.add(hemisphereLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+            directionalLight.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight);
+
+            // Piso
+            const floorGeometry = new THREE.PlaneGeometry(10, 10);
+            const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, transparent: true, opacity: 0.5 });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Añadir piso a la física
+            const floorBody = new CANNON.Body({
+                mass: 0, // Masa cero para objetos estáticos
+                shape: new CANNON.Plane(),
+                material: defaultMaterial
+            });
+            floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+            world.addBody(floorBody);
+
+            // Marker para teletransporte
+            const markerGeometry = new THREE.CircleGeometry(0.25, 32).rotateX(-Math.PI / 2);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x0078ff });
+            marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.visible = false;
+            scene.add(marker);
+
+            // Configurar controladores
+            setupControllers();
+
+            // Escuchar eventos de teclado
+            window.addEventListener('keydown', onKeyDown, false);
+
+            // Manejar redimensionamiento
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function setupControllers() {
+            // Controlador de Teleport (izquierdo)
+            controllerTeleport = renderer.xr.getController(0);
+            controllerTeleport.addEventListener('selectstart', onTeleportSelectStart);
+            controllerTeleport.addEventListener('selectend', onTeleportSelectEnd);
+            controllerTeleport.addEventListener('connected', (event) => {
+                controllerTeleport.add(buildController(event.data));
+            });
+            controllerTeleport.addEventListener('disconnected', () => {
+                controllerTeleport.remove(controllerTeleport.children[0]);
+            });
+            scene.add(controllerTeleport);
+
+            controllerGripTeleport = renderer.xr.getControllerGrip(0);
+            controllerGripTeleport.add(controllerModelFactory.createControllerModel(controllerGripTeleport));
+            scene.add(controllerGripTeleport);
+
+            // Controlador de Manipulación (derecho)
+            controllerManipulation = renderer.xr.getController(1);
+            controllerManipulation.addEventListener('selectstart', onManipulationSelectStart);
+            controllerManipulation.addEventListener('selectend', onManipulationSelectEnd);
+            controllerManipulation.addEventListener('squeezestart', onGrabStart);
+            controllerManipulation.addEventListener('squeezeend', onGrabEnd);
+            controllerManipulation.addEventListener('connected', (event) => {
+                controllerManipulation.add(buildController(event.data));
+            });
+            controllerManipulation.addEventListener('disconnected', () => {
+                controllerManipulation.remove(controllerManipulation.children[0]);
+            });
+            scene.add(controllerManipulation);
+
+            controllerGripManipulation = renderer.xr.getControllerGrip(1);
+            controllerGripManipulation.add(controllerModelFactory.createControllerModel(controllerGripManipulation));
+            scene.add(controllerGripManipulation);
+
+            // Eventos de Joystick Derecho
+            controllerManipulation.userData.isMoving = false;
+            controllerManipulation.userData.isRotating = false;
+
+            controllerManipulation.addEventListener('axeschange', (event) => {
+                const axes = event.axes;
+                // Joystick: axes[0] y axes[1]
+                if (axes.length > 1) {
+                    // Mover la escena
+                    if (Math.abs(axes[0]) > 0.1 || Math.abs(axes[1]) > 0.1) {
+                        const moveX = axes[0] * 0.05;
+                        const moveZ = axes[1] * 0.05;
+                        scene.position.x += moveX;
+                        scene.position.z += moveZ;
+                    }
+
+                    // Rotar la escena
+                    if (Math.abs(axes[0]) > 0.5 && Math.abs(axes[1]) > 0.5) {
+                        const rotationY = axes[0] * 0.05;
+                        scene.rotation.y += rotationY;
+                    }
+                }
+            });
+        }
+
+        function buildController(data) {
+            let geometry, material;
+
+            switch (data.targetRayMode) {
+                case 'tracked-pointer':
+                    geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
+                    geometry.setAttribute('color', new THREE.Float32BufferAttribute([0.5, 0.5, 0.5, 0, 0, 0], 3));
+                    material = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending });
+                    return new THREE.Line(geometry, material);
+
+                case 'gaze':
+                    geometry = new THREE.RingGeometry(0.02, 0.04, 32).translate(0, 0, -1);
+                    material = new THREE.MeshBasicMaterial({ opacity: 0.5, transparent: true });
+                    return new THREE.Mesh(geometry, material);
+            }
+        }
+
+        function onTeleportSelectStart() {
+            this.userData.isSelecting = true;
+        }
+
+        function onTeleportSelectEnd() {
+            this.userData.isSelecting = false;
+            if (this === controllerTeleport && marker.visible) {
+                teleportTo(marker.position);
+                marker.visible = false;
+            }
+        }
+
+        function onManipulationSelectStart() {
+            this.userData.isSelecting = true;
+            // Raycasting para seleccionar objeto
+            tempMatrix.identity().extractRotation(controllerManipulation.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controllerManipulation.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(objects, true);
+            if (intersects.length > 0) {
+                selectedObject = intersects[0].object;
+                console.log('Objeto seleccionado:', selectedObject);
+            }
+        }
+
+        function onManipulationSelectEnd() {
+            this.userData.isSelecting = false;
+            selectedObject = null;
+        }
+
+        function onGrabStart() {
+            if (selectedObject) {
+                grabbed = true;
+                // Conectar el objeto a la mano
+                controllerManipulation.attach(selectedObject);
+                scene.add(controllerManipulation);
+            }
+        }
+
+        function onGrabEnd() {
+            if (grabbed) {
+                grabbed = false;
+                // Soltar el objeto
+                scene.attach(selectedObject);
+                // Añadir física para que caiga
+                addPhysics(selectedObject);
+                selectedObject = null;
+            }
+        }
+
+        function teleportTo(position) {
+            // Teletransportar al usuario a la posición seleccionada
+            const offsetPosition = { x: -position.x, y: -position.y, z: -position.z, w: 1 };
+            const offsetRotation = new THREE.Quaternion();
+            const transform = new XRRigidTransform(offsetPosition, offsetRotation);
+            const teleportSpaceOffset = renderer.xr.getReferenceSpace().getOffsetReferenceSpace(transform);
+            renderer.xr.setReferenceSpace(teleportSpaceOffset);
+            console.log('Teletransportado a:', position);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onKeyDown(event) {
+            switch (event.key.toLowerCase()) {
+                case 'a':
+                    createObject('cube');
+                    break;
+                case 'x':
+                    createObject('sphere');
+                    break;
+                case 'y':
+                    createObject('cylinder');
+                    break;
+                case 'b':
+                    changeColor();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        function createObject(type) {
+            let geometry, material, mesh;
+
+            switch (type) {
+                case 'cube':
+                    geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                    material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+                    mesh = new THREE.Mesh(geometry, material);
+                    break;
+                case 'sphere':
+                    geometry = new THREE.SphereGeometry(0.25, 32, 32);
+                    material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+                    mesh = new THREE.Mesh(geometry, material);
+                    break;
+                case 'cylinder':
+                    geometry = new THREE.CylinderGeometry(0.25, 0.25, 0.5, 32);
+                    material = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+                    mesh = new THREE.Mesh(geometry, material);
+                    break;
+                default:
+                    return;
+            }
+
+            mesh.position.set(0, 2, -3); // Posición inicial
+            scene.add(mesh);
+            objects.push(mesh);
+            console.log(`Objeto ${type} creado`);
+
+            // Añadir física
+            addPhysics(mesh);
+        }
+
+        function addPhysics(mesh) {
+            const shape = createCannonShape(mesh.geometry);
+            const body = new CANNON.Body({
+                mass: 1, // Masa para que sea afectado por la gravedad
+                position: new CANNON.Vec3(mesh.position.x, mesh.position.y, mesh.position.z),
+                shape: shape,
+                material: defaultMaterial
+            });
+            world.addBody(body);
+            physicsObjects.push({ mesh: mesh, body: body });
+        }
+
+        function createCannonShape(geometry) {
+            // Simplificación: usar cajas para todos los objetos
+            return new CANNON.Box(new CANNON.Vec3(geometry.parameters.width ? geometry.parameters.width / 2 : 0.25,
+                                                 geometry.parameters.height ? geometry.parameters.height / 2 : 0.25,
+                                                 geometry.parameters.depth ? geometry.parameters.depth / 2 : 0.25));
+        }
+
+        function changeColor() {
+            if (selectedObject) {
+                selectedObject.material.color.set(Math.random() * 0xffffff);
+                console.log('Color del objeto cambiado');
+            } else {
+                console.log('No hay objeto seleccionado para cambiar el color');
+            }
+        }
+
+        function deleteObject() {
+            if (selectedObject) {
+                // Remover de Three.js
+                scene.remove(selectedObject);
+                const index = objects.indexOf(selectedObject);
+                if (index > -1) {
+                    objects.splice(index, 1);
+                }
+
+                // Remover de Cannon.js
+                const physicsIndex = physicsObjects.findIndex(obj => obj.mesh === selectedObject);
+                if (physicsIndex > -1) {
+                    world.removeBody(physicsObjects[physicsIndex].body);
+                    physicsObjects.splice(physicsIndex, 1);
+                }
+
+                selectedObject = null;
+                console.log('Objeto eliminado');
+            }
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            // Actualizar física
+            world.fixedStep();
+
+            // Sincronizar Three.js con Cannon.js
+            physicsObjects.forEach(obj => {
+                obj.mesh.position.copy(obj.body.position);
+                obj.mesh.quaternion.copy(obj.body.quaternion);
+            });
+
+            // Renderizar escena
+            renderer.render(scene, camera);
+        }
+
+        function grabObject() {
+            if (selectedObject && !grabbed) {
+                grabbed = true;
+                controllerManipulation.attach(selectedObject);
+                scene.add(controllerManipulation);
+                console.log('Objeto agarrado');
+            }
+        }
+
+        function releaseObject() {
+            if (grabbed && selectedObject) {
+                grabbed = false;
+                scene.attach(selectedObject);
+                // Actualizar posición física
+                const physicsObj = physicsObjects.find(obj => obj.mesh === selectedObject);
+                if (physicsObj) {
+                    physicsObj.body.position.copy(selectedObject.position);
+                    physicsObj.body.velocity.set(0, 0, 0); // Reiniciar velocidad
+                }
+                selectedObject = null;
+                console.log('Objeto soltado');
+            }
+        }
+
+        // Manejo de botones de los controladores
+        renderer.xr.getSessionInit().then(() => {
+            // Puedes añadir configuraciones adicionales aquí si es necesario
+        });
+
+        // Eventos para eliminar objetos con el grip izquierdo
+        controllerGripTeleport.addEventListener('squeezestart', () => {
+            deleteObject();
+        });
+
+    </script>
+</body>
+</html>
