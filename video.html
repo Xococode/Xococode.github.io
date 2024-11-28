@@ -10,7 +10,7 @@
 
     <div id="info">
         <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> vr - 360 stereo video<br />
-        stereoscopic panoramic render by <a href="http://pedrofe.com/rendering-for-oculus-rift-with-arnold/" target="_blank" rel="noopener">pedrofe</a>. Scene from <a href="http://www.meryproject.com/" target="_blank" rel="noopener">Mery Project</a>.
+        Example using importmap for module management.
     </div>
 
     <video id="video" loop muted crossOrigin="anonymous" playsinline style="display:none">
@@ -18,10 +18,19 @@
         <source src="https://xococode.github.io/MaryOculus.mp4" type="video/mp4">
     </video>
 
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
     <script type="module">
-        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js';
-        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js';
-        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/controls/OrbitControls.js';
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer;
         let orbitControls;
@@ -30,9 +39,6 @@
 
         function init() {
             const container = document.getElementById('container');
-            container.addEventListener('click', function () {
-                video.play();
-            });
 
             // Configuración de la escena
             scene = new THREE.Scene();
@@ -40,10 +46,15 @@
 
             // Configuración de la cámara
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
-            camera.position.set(0, 1.6, 3); // Altura estándar y distancia inicial
+            camera.position.set(0, 1.6, 3);
 
-            // Añadir controles de órbita
-            addOrbitControls();
+            // Controles de órbita
+            orbitControls = new OrbitControls(camera, container);
+            orbitControls.target.set(0, 1.6, 0);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.minDistance = 1;
+            orbitControls.maxDistance = 10;
 
             // Video
             const video = document.getElementById('video');
@@ -52,14 +63,13 @@
             const texture = new THREE.VideoTexture(video);
             texture.colorSpace = THREE.SRGBColorSpace;
 
-            // Configuración de las esferas para video estereoscópico
+            // Esferas para el video estereoscópico
             createStereoscopicVideo(texture);
 
             // Configuración del renderizador
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
@@ -68,17 +78,8 @@
             document.body.appendChild(VRButton.createButton(renderer));
 
             window.addEventListener('resize', onWindowResize);
-        }
 
-        function addOrbitControls() {
-            orbitControls = new OrbitControls(camera, renderer.domElement);
-            orbitControls.target.set(0, 1.6, 0); // Establece el punto de enfoque inicial
-            orbitControls.enableDamping = true; // Movimiento suave
-            orbitControls.dampingFactor = 0.05; // Suavizado
-            orbitControls.minDistance = 1; // Zoom mínimo
-            orbitControls.maxDistance = 10; // Zoom máximo
-            orbitControls.maxPolarAngle = Math.PI / 2; // Restringe la rotación vertical
-            orbitControls.update();
+            animate();
         }
 
         function createStereoscopicVideo(texture) {
@@ -121,9 +122,7 @@
         }
 
         function animate() {
-            if (orbitControls) {
-                orbitControls.update(); // Actualizar controles de órbita
-            }
+            orbitControls.update();
             renderer.render(scene, camera);
         }
     </script>
