@@ -163,6 +163,15 @@
 
             renderer.render(scene, camera);
         }
+
+        document.body.addEventListener('click', () => {
+    const video = document.getElementById('video');
+    if (video.paused) {
+        video.play().catch((error) => {
+            console.error('El video no pudo reproducirse automáticamente:', error);
+        });
+    }
+});
     </script>
 </body>
 </html>
