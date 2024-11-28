@@ -32,7 +32,7 @@
         import { VRButton } from 'three/addons/webxr/VRButton.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        let camera, scene, renderer, orbitControls;
+        let camera, scene, renderer, orbitControls, videoTexture;
         let isInVR = false; // Bandera para detectar el modo VR
 
         init();
@@ -60,16 +60,18 @@
             const video = document.getElementById('video');
             video.play();
 
-            const texture = new THREE.VideoTexture(video);
-            texture.colorSpace = THREE.SRGBColorSpace;
+            // Textura de video
+            videoTexture = new THREE.VideoTexture(video);
+            videoTexture.colorSpace = THREE.SRGBColorSpace;
 
             // Esferas para el video estereoscópico
-            createStereoscopicVideo(texture);
+            createStereoscopicVideo(videoTexture);
 
             // Configuración del renderizador
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
@@ -131,6 +133,7 @@
             if (!isInVR) {
                 orbitControls.update(); // Solo actualiza OrbitControls en modo escritorio
             }
+
             renderer.render(scene, camera);
             renderer.setAnimationLoop(animate); // Mantén la animación continua
         }
