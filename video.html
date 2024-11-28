@@ -33,6 +33,7 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer, orbitControls;
+        let isInVR = false; // Bandera para detectar el modo VR
 
         init();
 
@@ -47,7 +48,7 @@
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
             camera.position.set(0, 1.6, 3);
 
-            // Controles de órbita
+            // Configuración de OrbitControls para escritorio
             orbitControls = new OrbitControls(camera, container);
             orbitControls.target.set(0, 1.6, 0);
             orbitControls.enableDamping = true;
@@ -69,15 +70,22 @@
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
 
             // Botón de VR
-            document.body.appendChild(VRButton.createButton(renderer));
+            const vrButton = VRButton.createButton(renderer);
+            document.body.appendChild(vrButton);
+
+            // Detectar si se activa o desactiva el modo VR
+            vrButton.addEventListener('click', () => {
+                isInVR = !isInVR; // Alterna el estado entre VR y escritorio
+            });
 
             window.addEventListener('resize', onWindowResize);
+
+            animate();
         }
 
         function createStereoscopicVideo(texture) {
@@ -120,8 +128,11 @@
         }
 
         function animate() {
-            orbitControls.update(); // Actualiza los controles de órbita en cada cuadro
+            if (!isInVR) {
+                orbitControls.update(); // Solo actualiza OrbitControls en modo escritorio
+            }
             renderer.render(scene, camera);
+            renderer.setAnimationLoop(animate); // Mantén la animación continua
         }
     </script>
 </body>
