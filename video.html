@@ -1,17 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>three.js vr/desktop - 360 stereo video</title>
+    <title>three.js webgpu - video panorama</title>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link type="text/css" rel="stylesheet" href="main.css">
+    <style>
+        body {
+            touch-action: none;
+        }
+    </style>
 </head>
 <body>
-    <div id="container"></div>
-
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> vr/desktop - 360 stereo video<br />
-        stereoscopic panoramic render by <a href="http://pedrofe.com/rendering-for-oculus-rift-with-arnold/" target="_blank" rel="noopener">pedrofe</a>. Scene from <a href="http://www.meryproject.com/" target="_blank" rel="noopener">Mery Project</a>.
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> - video panorama
     </div>
+
+    <div id="container"></div>
 
     <video id="video" loop muted crossOrigin="anonymous" playsinline style="display:none">
         <source src="https://xococode.github.io/MaryOculus.webm" type="video/webm">
@@ -19,102 +24,116 @@
     </video>
 
     <script type="module">
-        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js';
-        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js';
-        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/controls/OrbitControls.js';
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
 
-        let camera, scene, renderer, controls;
+        let camera, scene, renderer;
+
+        let isUserInteracting = false,
+            lon = 0, lat = 0,
+            phi = 0, theta = 0,
+            onPointerDownPointerX = 0,
+            onPointerDownPointerY = 0,
+            onPointerDownLon = 0,
+            onPointerDownLat = 0;
+
+        const distance = .5;
 
         init();
 
         function init() {
+
             const container = document.getElementById('container');
-            container.addEventListener('click', function () {
-                video.play();
-            });
 
-            // Set up the camera
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-            camera.layers.enable(1); // render left view when no stereo available
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, .25, 10);
 
-            // Video element
+            scene = new THREE.Scene();
+
+            const geometry = new THREE.SphereGeometry(5, 60, 40);
+            // invert the geometry on the x-axis so that all of the faces point inward
+            geometry.scale(-1, 1, 1);
+
             const video = document.getElementById('video');
             video.play();
 
             const texture = new THREE.VideoTexture(video);
             texture.colorSpace = THREE.SRGBColorSpace;
+            const material = new THREE.MeshBasicMaterial({ map: texture });
 
-            // Set up the scene
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x101010);
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
 
-            // Left Sphere (Left Eye)
-            const geometry1 = new THREE.SphereGeometry(500, 60, 40);
-            geometry1.scale(-1, 1, 1);
-
-            const uvs1 = geometry1.attributes.uv.array;
-            for (let i = 0; i < uvs1.length; i += 2) {
-                uvs1[i] *= 0.5;
-            }
-
-            const material1 = new THREE.MeshBasicMaterial({ map: texture });
-            const mesh1 = new THREE.Mesh(geometry1, material1);
-            mesh1.rotation.y = -Math.PI / 2;
-            mesh1.layers.set(1); // display in left eye only
-            scene.add(mesh1);
-
-            // Right Sphere (Right Eye)
-            const geometry2 = new THREE.SphereGeometry(500, 60, 40);
-            geometry2.scale(-1, 1, 1);
-
-            const uvs2 = geometry2.attributes.uv.array;
-            for (let i = 0; i < uvs2.length; i += 2) {
-                uvs2[i] *= 0.5;
-                uvs2[i] += 0.5;
-            }
-
-            const material2 = new THREE.MeshBasicMaterial({ map: texture });
-            const mesh2 = new THREE.Mesh(geometry2, material2);
-            mesh2.rotation.y = -Math.PI / 2;
-            mesh2.layers.set(2); // display in right eye only
-            scene.add(mesh2);
-
-            // Set up the renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            renderer.xr.setReferenceSpaceType('local');
+            renderer.setAnimationLoop(animate);
             container.appendChild(renderer.domElement);
 
-            // Add VR button
-            document.body.appendChild(VRButton.createButton(renderer));
+            document.addEventListener('pointerdown', onPointerDown);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
 
-            // Add OrbitControls for desktop
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; // Smooth movement
-            controls.dampingFactor = 0.05;
-            controls.minDistance = 1; // Prevent getting too close
-            controls.maxDistance = 1000; // Limit zoom-out distance
-
-            // Adjust on window resize
             window.addEventListener('resize', onWindowResize);
 
-            // Initial camera position for better view
-            camera.position.set(0, 0, 0.1);
-
-            renderer.setAnimationLoop(animate);
         }
 
         function onWindowResize() {
+
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
+
             renderer.setSize(window.innerWidth, window.innerHeight);
+
+        }
+
+        function onPointerDown(event) {
+
+            isUserInteracting = true;
+
+            onPointerDownPointerX = event.clientX;
+            onPointerDownPointerY = event.clientY;
+
+            onPointerDownLon = lon;
+            onPointerDownLat = lat;
+
+        }
+
+        function onPointerMove(event) {
+
+            if (isUserInteracting === true) {
+
+                lon = (onPointerDownPointerX - event.clientX) * 0.1 + onPointerDownLon;
+                lat = (onPointerDownPointerY - event.clientY) * 0.1 + onPointerDownLat;
+
+            }
+
+        }
+
+        function onPointerUp() {
+
+            isUserInteracting = false;
+
         }
 
         function animate() {
-            controls.update(); // Update OrbitControls
+
+            update();
+
+        }
+
+        function update() {
+
+            lat = Math.max(-85, Math.min(85, lat));
+            phi = THREE.MathUtils.degToRad(90 - lat);
+            theta = THREE.MathUtils.degToRad(lon);
+
+            camera.position.x = distance * Math.sin(phi) * Math.cos(theta);
+            camera.position.y = distance * Math.cos(phi);
+            camera.position.z = distance * Math.sin(phi) * Math.sin(theta);
+
+            camera.lookAt(0, 0, 0);
+
             renderer.render(scene, camera);
+
         }
     </script>
 </body>
