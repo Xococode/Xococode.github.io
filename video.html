@@ -33,8 +33,7 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer, orbitControls;
-        let videoTexture;
-        let singleSphere, leftSphere, rightSphere;
+        let videoTexture, singleSphere, leftSphere, rightSphere;
         let isInVR = false;
 
         init();
@@ -50,7 +49,7 @@
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
             camera.position.set(0, 1.6, 3);
 
-            // Configuración de OrbitControls para escritorio
+            // OrbitControls para modo escritorio
             orbitControls = new OrbitControls(camera, container);
             orbitControls.target.set(0, 1.6, 0);
             orbitControls.enableDamping = true;
@@ -66,7 +65,7 @@
             videoTexture = new THREE.VideoTexture(video);
             videoTexture.colorSpace = THREE.SRGBColorSpace;
 
-            // Crear esferas
+            // Esferas
             createSpheres();
 
             // Configuración del renderizador
@@ -81,7 +80,7 @@
             const vrButton = VRButton.createButton(renderer);
             document.body.appendChild(vrButton);
 
-            // Detectar entrada/salida del modo VR
+            // Detectar entrada/salida de VR
             renderer.xr.addEventListener('sessionstart', onEnterVR);
             renderer.xr.addEventListener('sessionend', onExitVR);
 
@@ -91,53 +90,53 @@
         }
 
         function createSpheres() {
-            // Esfera única para el modo escritorio
+            // Esfera única para escritorio
             const singleGeometry = new THREE.SphereGeometry(500, 60, 40);
             singleGeometry.scale(-1, 1, 1);
             const singleMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
             singleSphere = new THREE.Mesh(singleGeometry, singleMaterial);
-            singleSphere.visible = true; // Visible solo en modo escritorio
             scene.add(singleSphere);
 
-            // Esferas izquierda y derecha para el modo VR
+            // Esferas para VR (izquierda y derecha)
             const leftGeometry = new THREE.SphereGeometry(500, 60, 40);
             leftGeometry.scale(-1, 1, 1);
-            const uvs1 = leftGeometry.attributes.uv.array;
-            for (let i = 0; i < uvs1.length; i += 2) {
-                uvs1[i] *= 0.5; // Solo la mitad izquierda del video
+            const leftUVs = leftGeometry.attributes.uv.array;
+            for (let i = 0; i < leftUVs.length; i += 2) {
+                leftUVs[i] *= 0.5; // Mitad izquierda
             }
-            const leftMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-            leftSphere = new THREE.Mesh(leftGeometry, leftMaterial);
-            leftSphere.layers.set(1); // Visible solo en el ojo izquierdo
-            leftSphere.visible = false; // Oculta inicialmente
+            leftSphere = new THREE.Mesh(leftGeometry, new THREE.MeshBasicMaterial({ map: videoTexture }));
+            leftSphere.layers.set(1); // Ojo izquierdo
             scene.add(leftSphere);
 
             const rightGeometry = new THREE.SphereGeometry(500, 60, 40);
             rightGeometry.scale(-1, 1, 1);
-            const uvs2 = rightGeometry.attributes.uv.array;
-            for (let i = 0; i < uvs2.length; i += 2) {
-                uvs2[i] *= 0.5;
-                uvs2[i] += 0.5; // Solo la mitad derecha del video
+            const rightUVs = rightGeometry.attributes.uv.array;
+            for (let i = 0; i < rightUVs.length; i += 2) {
+                rightUVs[i] *= 0.5;
+                rightUVs[i] += 0.5; // Mitad derecha
             }
-            const rightMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-            rightSphere = new THREE.Mesh(rightGeometry, rightMaterial);
-            rightSphere.layers.set(2); // Visible solo en el ojo derecho
-            rightSphere.visible = false; // Oculta inicialmente
+            rightSphere = new THREE.Mesh(rightGeometry, new THREE.MeshBasicMaterial({ map: videoTexture }));
+            rightSphere.layers.set(2); // Ojo derecho
             scene.add(rightSphere);
+
+            // Visibilidad inicial
+            singleSphere.visible = true;
+            leftSphere.visible = false;
+            rightSphere.visible = false;
         }
 
         function onEnterVR() {
             isInVR = true;
-            singleSphere.visible = false; // Oculta la esfera única
-            leftSphere.visible = true; // Muestra la esfera izquierda
-            rightSphere.visible = true; // Muestra la esfera derecha
+            singleSphere.visible = false;
+            leftSphere.visible = true;
+            rightSphere.visible = true;
         }
 
         function onExitVR() {
             isInVR = false;
-            singleSphere.visible = true; // Muestra la esfera única
-            leftSphere.visible = false; // Oculta la esfera izquierda
-            rightSphere.visible = false; // Oculta la esfera derecha
+            singleSphere.visible = true;
+            leftSphere.visible = false;
+            rightSphere.visible = false;
         }
 
         function onWindowResize() {
@@ -148,7 +147,7 @@
 
         function animate() {
             if (!isInVR) {
-                orbitControls.update(); // Solo actualiza OrbitControls en modo escritorio
+                orbitControls.update(); // Solo en escritorio
             }
             renderer.render(scene, camera);
         }
