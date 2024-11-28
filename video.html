@@ -32,7 +32,10 @@
         import { VRButton } from 'three/addons/webxr/VRButton.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        let camera, scene, renderer, orbitControls, videoTexture;
+        let camera, scene, renderer, orbitControls;
+        let videoTexture;
+        let singleSphere, leftSphere, rightSphere;
+        let isInVR = false;
 
         init();
 
@@ -63,8 +66,8 @@
             videoTexture = new THREE.VideoTexture(video);
             videoTexture.colorSpace = THREE.SRGBColorSpace;
 
-            // Esfera para mostrar el video en modo escritorio y VR
-            createVideoSphere(videoTexture);
+            // Crear esferas
+            createSpheres();
 
             // Configuración del renderizador
             renderer = new THREE.WebGLRenderer();
@@ -75,22 +78,66 @@
             container.appendChild(renderer.domElement);
 
             // Botón de VR
-            document.body.appendChild(VRButton.createButton(renderer));
+            const vrButton = VRButton.createButton(renderer);
+            document.body.appendChild(vrButton);
+
+            // Detectar entrada/salida del modo VR
+            renderer.xr.addEventListener('sessionstart', onEnterVR);
+            renderer.xr.addEventListener('sessionend', onExitVR);
 
             window.addEventListener('resize', onWindowResize);
 
             animate();
         }
 
-        function createVideoSphere(texture) {
-            // Una única esfera visible tanto para el modo escritorio como VR
-            const geometry = new THREE.SphereGeometry(500, 60, 40);
-            geometry.scale(-1, 1, 1); // Voltea la esfera hacia adentro
+        function createSpheres() {
+            // Esfera única para el modo escritorio
+            const singleGeometry = new THREE.SphereGeometry(500, 60, 40);
+            singleGeometry.scale(-1, 1, 1);
+            const singleMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+            singleSphere = new THREE.Mesh(singleGeometry, singleMaterial);
+            singleSphere.visible = true; // Visible solo en modo escritorio
+            scene.add(singleSphere);
 
-            const material = new THREE.MeshBasicMaterial({ map: texture });
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.rotation.y = -Math.PI / 2; // Ajusta la orientación inicial
-            scene.add(mesh);
+            // Esferas izquierda y derecha para el modo VR
+            const leftGeometry = new THREE.SphereGeometry(500, 60, 40);
+            leftGeometry.scale(-1, 1, 1);
+            const uvs1 = leftGeometry.attributes.uv.array;
+            for (let i = 0; i < uvs1.length; i += 2) {
+                uvs1[i] *= 0.5; // Solo la mitad izquierda del video
+            }
+            const leftMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+            leftSphere = new THREE.Mesh(leftGeometry, leftMaterial);
+            leftSphere.layers.set(1); // Visible solo en el ojo izquierdo
+            leftSphere.visible = false; // Oculta inicialmente
+            scene.add(leftSphere);
+
+            const rightGeometry = new THREE.SphereGeometry(500, 60, 40);
+            rightGeometry.scale(-1, 1, 1);
+            const uvs2 = rightGeometry.attributes.uv.array;
+            for (let i = 0; i < uvs2.length; i += 2) {
+                uvs2[i] *= 0.5;
+                uvs2[i] += 0.5; // Solo la mitad derecha del video
+            }
+            const rightMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+            rightSphere = new THREE.Mesh(rightGeometry, rightMaterial);
+            rightSphere.layers.set(2); // Visible solo en el ojo derecho
+            rightSphere.visible = false; // Oculta inicialmente
+            scene.add(rightSphere);
+        }
+
+        function onEnterVR() {
+            isInVR = true;
+            singleSphere.visible = false; // Oculta la esfera única
+            leftSphere.visible = true; // Muestra la esfera izquierda
+            rightSphere.visible = true; // Muestra la esfera derecha
+        }
+
+        function onExitVR() {
+            isInVR = false;
+            singleSphere.visible = true; // Muestra la esfera única
+            leftSphere.visible = false; // Oculta la esfera izquierda
+            rightSphere.visible = false; // Oculta la esfera derecha
         }
 
         function onWindowResize() {
@@ -100,7 +147,9 @@
         }
 
         function animate() {
-            orbitControls.update(); // Actualiza los controles de órbita en modo escritorio
+            if (!isInVR) {
+                orbitControls.update(); // Solo actualiza OrbitControls en modo escritorio
+            }
             renderer.render(scene, camera);
         }
     </script>
