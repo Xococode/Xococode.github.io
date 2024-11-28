@@ -4,6 +4,25 @@
     <title>three.js vr - 360 stereo video</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            touch-action: none;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 1;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            line-height: 24px;
+            pointer-events: none;
+        }
+    </style>
 </head>
 <body>
     <div id="container"></div>
@@ -23,26 +42,27 @@
         import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js';
 
         let camera, scene, renderer;
+        let isUserInteracting = false;
+        let lon = 0, lat = 0;
+        let phi = 0, theta = 0;
+        let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
+        let onPointerDownLon = 0, onPointerDownLat = 0;
 
         init();
 
         function init() {
             const container = document.getElementById('container');
-            container.addEventListener('click', function () {
-                const video = document.getElementById('video');
-                video.play();
-            });
+            const video = document.getElementById('video');
 
             // Camera
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-            camera.layers.enable(1); // Render left view when no stereo is available
+            camera.layers.enable(1); // Render left view when no stereo available
 
             // Scene
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x101010);
 
             // Video texture
-            const video = document.getElementById('video');
             const texture = new THREE.VideoTexture(video);
             texture.colorSpace = THREE.SRGBColorSpace;
 
@@ -84,11 +104,49 @@
             // Add VRButton to enable VR
             document.body.appendChild(VRButton.createButton(renderer));
 
+            // Add interaction listeners
+            document.addEventListener('pointerdown', onPointerDown);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('wheel', onDocumentMouseWheel);
+
             // Handle window resize
             window.addEventListener('resize', onWindowResize);
 
+            // Start video playback
+            container.addEventListener('click', function () {
+                video.play();
+            });
+
             // Animation loop
             renderer.setAnimationLoop(animate);
+        }
+
+        function onPointerDown(event) {
+            isUserInteracting = true;
+
+            onPointerDownPointerX = event.clientX;
+            onPointerDownPointerY = event.clientY;
+
+            onPointerDownLon = lon;
+            onPointerDownLat = lat;
+        }
+
+        function onPointerMove(event) {
+            if (isUserInteracting === true) {
+                lon = (onPointerDownPointerX - event.clientX) * 0.1 + onPointerDownLon;
+                lat = (onPointerDownPointerY - event.clientY) * 0.1 + onPointerDownLat;
+            }
+        }
+
+        function onPointerUp() {
+            isUserInteracting = false;
+        }
+
+        function onDocumentMouseWheel(event) {
+            camera.fov += event.deltaY * 0.05;
+            camera.fov = Math.max(10, Math.min(100, camera.fov));
+            camera.updateProjectionMatrix();
         }
 
         function onWindowResize() {
@@ -98,6 +156,16 @@
         }
 
         function animate() {
+            lat = Math.max(-85, Math.min(85, lat));
+            phi = THREE.MathUtils.degToRad(90 - lat);
+            theta = THREE.MathUtils.degToRad(lon);
+
+            camera.position.x = 500 * Math.sin(phi) * Math.cos(theta);
+            camera.position.y = 500 * Math.cos(phi);
+            camera.position.z = 500 * Math.sin(phi) * Math.sin(theta);
+
+            camera.lookAt(0, 0, 0);
+
             renderer.render(scene, camera);
         }
     </script>
