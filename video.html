@@ -18,10 +18,19 @@
         <source src="https://xococode.github.io/MaryOculus.mp4" type="video/mp4">
     </video>
 
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
     <script type="module">
-        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js';
-        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js';
-        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/controls/OrbitControls.js';
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer, orbitControls;
 
@@ -36,8 +45,7 @@
 
             // Configuración de la cámara
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-            camera.position.set(0, 1.6, 3); // Altura estándar y distancia inicial
-            camera.layers.enable(1); // render left view when no stereo available
+            camera.position.set(0, 1.6, 3);
 
             // Controles de órbita
             orbitControls = new OrbitControls(camera, container);
