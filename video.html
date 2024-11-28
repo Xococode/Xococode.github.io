@@ -18,41 +18,28 @@
         <source src="https://xococode.github.io/MaryOculus.mp4" type="video/mp4">
     </video>
 
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
-            }
-        }
-    </script>
-
     <script type="module">
-        import * as THREE from 'three';
-        import { VRButton } from 'three/addons/webxr/VRButton.js';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js';
+        import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js';
+        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/controls/OrbitControls.js';
 
         let camera, scene, renderer, orbitControls;
-        let videoTexture, singleSphere, leftSphere, rightSphere;
-        let isInVR = false;
 
         init();
 
         function init() {
             const container = document.getElementById('container');
+            container.addEventListener('click', function () {
+                video.play();
+            });
 
-            // Configuración de la escena
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x101010);
-
-            // Configuración de la cámara
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-            camera.position.set(0, 1.6, 3);
+            camera.position.set(0, 1.6, 3); // Altura inicial de la cámara
 
-            // OrbitControls para modo escritorio
+            // OrbitControls
             orbitControls = new OrbitControls(camera, container);
-            orbitControls.target.set(0, 1.6, 0);
-            orbitControls.enableDamping = true;
+            orbitControls.target.set(0, 1.6, 0); // Punto inicial de enfoque
+            orbitControls.enableDamping = true; // Habilita un movimiento suave
             orbitControls.dampingFactor = 0.05;
             orbitControls.minDistance = 1;
             orbitControls.maxDistance = 10;
@@ -61,82 +48,56 @@
             const video = document.getElementById('video');
             video.play();
 
-            // Textura de video
-            videoTexture = new THREE.VideoTexture(video);
-            videoTexture.colorSpace = THREE.SRGBColorSpace;
+            const texture = new THREE.VideoTexture(video);
+            texture.colorSpace = THREE.SRGBColorSpace;
 
-            // Esferas
-            createSpheres();
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x101010);
 
-            // Configuración del renderizador
+            // Left Sphere
+            const geometry1 = new THREE.SphereGeometry(500, 60, 40);
+            geometry1.scale(-1, 1, 1);
+
+            const uvs1 = geometry1.attributes.uv.array;
+            for (let i = 0; i < uvs1.length; i += 2) {
+                uvs1[i] *= 0.5;
+            }
+
+            const material1 = new THREE.MeshBasicMaterial({ map: texture });
+            const mesh1 = new THREE.Mesh(geometry1, material1);
+            mesh1.rotation.y = -Math.PI / 2;
+            mesh1.layers.set(1); // Display en ojo izquierdo
+            scene.add(mesh1);
+
+            // Right Sphere
+            const geometry2 = new THREE.SphereGeometry(500, 60, 40);
+            geometry2.scale(-1, 1, 1);
+
+            const uvs2 = geometry2.attributes.uv.array;
+            for (let i = 0; i < uvs2.length; i += 2) {
+                uvs2[i] *= 0.5;
+                uvs2[i] += 0.5;
+            }
+
+            const material2 = new THREE.MeshBasicMaterial({ map: texture });
+            const mesh2 = new THREE.Mesh(geometry2, material2);
+            mesh2.rotation.y = -Math.PI / 2;
+            mesh2.layers.set(2); // Display en ojo derecho
+            scene.add(mesh2);
+
+            // Renderer
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
 
-            // Botón de VR
-            const vrButton = VRButton.createButton(renderer);
-            document.body.appendChild(vrButton);
-
-            // Detectar entrada/salida de VR
-            renderer.xr.addEventListener('sessionstart', onEnterVR);
-            renderer.xr.addEventListener('sessionend', onExitVR);
+            // Botón VR
+            document.body.appendChild(VRButton.createButton(renderer));
 
             window.addEventListener('resize', onWindowResize);
-
-            animate();
-        }
-
-        function createSpheres() {
-            // Esfera única para escritorio
-            const singleGeometry = new THREE.SphereGeometry(500, 60, 40);
-            singleGeometry.scale(-1, 1, 1);
-            const singleMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-            singleSphere = new THREE.Mesh(singleGeometry, singleMaterial);
-            scene.add(singleSphere);
-
-            // Esferas para VR (izquierda y derecha)
-            const leftGeometry = new THREE.SphereGeometry(500, 60, 40);
-            leftGeometry.scale(-1, 1, 1);
-            const leftUVs = leftGeometry.attributes.uv.array;
-            for (let i = 0; i < leftUVs.length; i += 2) {
-                leftUVs[i] *= 0.5; // Mitad izquierda
-            }
-            leftSphere = new THREE.Mesh(leftGeometry, new THREE.MeshBasicMaterial({ map: videoTexture }));
-            leftSphere.layers.set(1); // Ojo izquierdo
-            scene.add(leftSphere);
-
-            const rightGeometry = new THREE.SphereGeometry(500, 60, 40);
-            rightGeometry.scale(-1, 1, 1);
-            const rightUVs = rightGeometry.attributes.uv.array;
-            for (let i = 0; i < rightUVs.length; i += 2) {
-                rightUVs[i] *= 0.5;
-                rightUVs[i] += 0.5; // Mitad derecha
-            }
-            rightSphere = new THREE.Mesh(rightGeometry, new THREE.MeshBasicMaterial({ map: videoTexture }));
-            rightSphere.layers.set(2); // Ojo derecho
-            scene.add(rightSphere);
-
-            // Visibilidad inicial
-            singleSphere.visible = true;
-            leftSphere.visible = false;
-            rightSphere.visible = false;
-        }
-
-        function onEnterVR() {
-            isInVR = true;
-            singleSphere.visible = false;
-            leftSphere.visible = true;
-            rightSphere.visible = true;
-        }
-
-        function onExitVR() {
-            isInVR = false;
-            singleSphere.visible = true;
-            leftSphere.visible = false;
-            rightSphere.visible = false;
         }
 
         function onWindowResize() {
@@ -146,9 +107,7 @@
         }
 
         function animate() {
-            if (!isInVR) {
-                orbitControls.update(); // Solo en escritorio
-            }
+            orbitControls.update(); // Actualizar controles de órbita
             renderer.render(scene, camera);
         }
     </script>
