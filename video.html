@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>three.js vr - 360 stereo video</title>
+    <title>three.js vr/desktop - 360 stereo video</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 </head>
@@ -9,7 +9,7 @@
     <div id="container"></div>
 
     <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> vr - 360 stereo video<br />
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> vr/desktop - 360 stereo video<br />
         stereoscopic panoramic render by <a href="http://pedrofe.com/rendering-for-oculus-rift-with-arnold/" target="_blank" rel="noopener">pedrofe</a>. Scene from <a href="http://www.meryproject.com/" target="_blank" rel="noopener">Mery Project</a>.
     </div>
 
@@ -23,7 +23,7 @@
         import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js';
         import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/controls/OrbitControls.js';
 
-        let camera, scene, renderer, orbitControls;
+        let camera, scene, renderer, controls;
 
         init();
 
@@ -33,28 +33,22 @@
                 video.play();
             });
 
+            // Set up the camera
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-            camera.position.set(0, 1.6, 3); // Altura inicial de la cámara
+            camera.layers.enable(1); // render left view when no stereo available
 
-            // OrbitControls
-            orbitControls = new OrbitControls(camera, container);
-            orbitControls.target.set(0, 1.6, 0); // Punto inicial de enfoque
-            orbitControls.enableDamping = true; // Habilita un movimiento suave
-            orbitControls.dampingFactor = 0.05;
-            orbitControls.minDistance = 1;
-            orbitControls.maxDistance = 10;
-
-            // Video
+            // Video element
             const video = document.getElementById('video');
             video.play();
 
             const texture = new THREE.VideoTexture(video);
             texture.colorSpace = THREE.SRGBColorSpace;
 
+            // Set up the scene
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x101010);
 
-            // Left Sphere
+            // Left Sphere (Left Eye)
             const geometry1 = new THREE.SphereGeometry(500, 60, 40);
             geometry1.scale(-1, 1, 1);
 
@@ -66,10 +60,10 @@
             const material1 = new THREE.MeshBasicMaterial({ map: texture });
             const mesh1 = new THREE.Mesh(geometry1, material1);
             mesh1.rotation.y = -Math.PI / 2;
-            mesh1.layers.set(1); // Display en ojo izquierdo
+            mesh1.layers.set(1); // display in left eye only
             scene.add(mesh1);
 
-            // Right Sphere
+            // Right Sphere (Right Eye)
             const geometry2 = new THREE.SphereGeometry(500, 60, 40);
             geometry2.scale(-1, 1, 1);
 
@@ -82,22 +76,34 @@
             const material2 = new THREE.MeshBasicMaterial({ map: texture });
             const mesh2 = new THREE.Mesh(geometry2, material2);
             mesh2.rotation.y = -Math.PI / 2;
-            mesh2.layers.set(2); // Display en ojo derecho
+            mesh2.layers.set(2); // display in right eye only
             scene.add(mesh2);
 
-            // Renderer
-            renderer = new THREE.WebGLRenderer();
+            // Set up the renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
 
-            // Botón VR
+            // Add VR button
             document.body.appendChild(VRButton.createButton(renderer));
 
+            // Add OrbitControls for desktop
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Smooth movement
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 1; // Prevent getting too close
+            controls.maxDistance = 1000; // Limit zoom-out distance
+
+            // Adjust on window resize
             window.addEventListener('resize', onWindowResize);
+
+            // Initial camera position for better view
+            camera.position.set(0, 0, 0.1);
+
+            renderer.setAnimationLoop(animate);
         }
 
         function onWindowResize() {
@@ -107,7 +113,7 @@
         }
 
         function animate() {
-            orbitControls.update(); // Actualizar controles de órbita
+            controls.update(); // Update OrbitControls
             renderer.render(scene, camera);
         }
     </script>
