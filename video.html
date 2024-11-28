@@ -33,7 +33,6 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         let camera, scene, renderer, orbitControls, videoTexture;
-        let isInVR = false; // Bandera para detectar el modo VR
 
         init();
 
@@ -64,63 +63,34 @@
             videoTexture = new THREE.VideoTexture(video);
             videoTexture.colorSpace = THREE.SRGBColorSpace;
 
-            // Esferas para el video estereoscópico
-            createStereoscopicVideo(videoTexture);
+            // Esfera para mostrar el video en modo escritorio y VR
+            createVideoSphere(videoTexture);
 
             // Configuración del renderizador
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
 
             // Botón de VR
-            const vrButton = VRButton.createButton(renderer);
-            document.body.appendChild(vrButton);
-
-            // Detectar si se activa o desactiva el modo VR
-            vrButton.addEventListener('click', () => {
-                isInVR = !isInVR; // Alterna el estado entre VR y escritorio
-            });
+            document.body.appendChild(VRButton.createButton(renderer));
 
             window.addEventListener('resize', onWindowResize);
 
             animate();
         }
 
-        function createStereoscopicVideo(texture) {
-            // Left eye
-            const geometry1 = new THREE.SphereGeometry(500, 60, 40);
-            geometry1.scale(-1, 1, 1);
+        function createVideoSphere(texture) {
+            // Una única esfera visible tanto para el modo escritorio como VR
+            const geometry = new THREE.SphereGeometry(500, 60, 40);
+            geometry.scale(-1, 1, 1); // Voltea la esfera hacia adentro
 
-            const uvs1 = geometry1.attributes.uv.array;
-            for (let i = 0; i < uvs1.length; i += 2) {
-                uvs1[i] *= 0.5;
-            }
-
-            const material1 = new THREE.MeshBasicMaterial({ map: texture });
-            const mesh1 = new THREE.Mesh(geometry1, material1);
-            mesh1.rotation.y = -Math.PI / 2;
-            mesh1.layers.set(1); // Display in left eye only
-            scene.add(mesh1);
-
-            // Right eye
-            const geometry2 = new THREE.SphereGeometry(500, 60, 40);
-            geometry2.scale(-1, 1, 1);
-
-            const uvs2 = geometry2.attributes.uv.array;
-            for (let i = 0; i < uvs2.length; i += 2) {
-                uvs2[i] *= 0.5;
-                uvs2[i] += 0.5;
-            }
-
-            const material2 = new THREE.MeshBasicMaterial({ map: texture });
-            const mesh2 = new THREE.Mesh(geometry2, material2);
-            mesh2.rotation.y = -Math.PI / 2;
-            mesh2.layers.set(2); // Display in right eye only
-            scene.add(mesh2);
+            const material = new THREE.MeshBasicMaterial({ map: texture });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.y = -Math.PI / 2; // Ajusta la orientación inicial
+            scene.add(mesh);
         }
 
         function onWindowResize() {
@@ -130,12 +100,8 @@
         }
 
         function animate() {
-            if (!isInVR) {
-                orbitControls.update(); // Solo actualiza OrbitControls en modo escritorio
-            }
-
+            orbitControls.update(); // Actualiza los controles de órbita en modo escritorio
             renderer.render(scene, camera);
-            renderer.setAnimationLoop(animate); // Mantén la animación continua
         }
     </script>
 </body>
