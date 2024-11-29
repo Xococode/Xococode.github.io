@@ -1,11 +1,9 @@
 <script type="module">
     import * as THREE from 'three';
     import { VRButton } from 'three/addons/webxr/VRButton.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-    let camera, scene, renderer, sphere, clock;
-    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-    let rotationX = 0, rotationY = 0;
-    let velocity = new THREE.Vector3();
+    let camera, scene, renderer, sphere, clock, controls;
 
     init();
 
@@ -21,16 +19,22 @@
         scene.add(light);
 
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
+        camera.position.set(0, 1.6, 0); // Altura similar a la visión humana
         scene.add(camera);
 
+        // Create the panoramic sphere geometry
         const panoSphereGeo = new THREE.SphereGeometry(6, 256, 256);
+
+        // Create the panoramic sphere material
         const panoSphereMat = new THREE.MeshStandardMaterial({
             side: THREE.BackSide,
             displacementScale: -4.0
         });
 
+        // Create the panoramic sphere mesh
         sphere = new THREE.Mesh(panoSphereGeo, panoSphereMat);
 
+        // Load and assign the texture and depth map
         const manager = new THREE.LoadingManager();
         const loader = new THREE.TextureLoader(manager);
 
@@ -47,6 +51,7 @@
             sphere.material.displacementMap = depth;
         });
 
+        // On load complete add the panoramic sphere to the scene
         manager.onLoad = function () {
             scene.add(sphere);
         };
@@ -54,17 +59,66 @@
         renderer = new THREE.WebGLRenderer();
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setAnimationLoop(animate);
         renderer.xr.enabled = true;
         renderer.xr.setReferenceSpaceType('local');
         container.appendChild(renderer.domElement);
 
         document.body.appendChild(VRButton.createButton(renderer));
 
+        // Orbit Controls for Non-VR Mode
+        controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Smooth movement
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.maxDistance = 10; // Limit zoom out
+        controls.minDistance = 1;  // Limit zoom in
+
+        // Handle window resize
         window.addEventListener('resize', onWindowResize);
-        document.addEventListener('keydown', onKeyDown);
-        document.addEventListener('keyup', onKeyUp);
-        container.addEventListener('mousemove', onMouseMove);
+
+        // Keyboard Controls
+        addKeyboardControls();
+    }
+
+    function addKeyboardControls() {
+        const keys = { w: false, a: false, s: false, d: false };
+
+        window.addEventListener('keydown', (event) => {
+            keys[event.key.toLowerCase()] = true;
+        });
+
+        window.addEventListener('keyup', (event) => {
+            keys[event.key.toLowerCase()] = false;
+        });
+
+        // Movement Logic
+        function moveCamera(delta) {
+            const speed = 2; // Movement speed
+            const direction = new THREE.Vector3();
+
+            if (keys.w) {
+                camera.getWorldDirection(direction);
+                camera.position.addScaledVector(direction, speed * delta);
+            }
+            if (keys.s) {
+                camera.getWorldDirection(direction);
+                camera.position.addScaledVector(direction, -speed * delta);
+            }
+            if (keys.a) {
+                camera.position.x -= speed * delta;
+            }
+            if (keys.d) {
+                camera.position.x += speed * delta;
+            }
+        }
+
+        function animateKeyboard() {
+            const delta = clock.getDelta();
+            moveCamera(delta);
+            requestAnimationFrame(animateKeyboard);
+        }
+
+        animateKeyboard();
     }
 
     function onWindowResize() {
@@ -73,56 +127,17 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    function onKeyDown(event) {
-        switch (event.code) {
-            case 'KeyW': moveForward = true; break;
-            case 'KeyS': moveBackward = true; break;
-            case 'KeyA': moveLeft = true; break;
-            case 'KeyD': moveRight = true; break;
-        }
-    }
-
-    function onKeyUp(event) {
-        switch (event.code) {
-            case 'KeyW': moveForward = false; break;
-            case 'KeyS': moveBackward = false; break;
-            case 'KeyA': moveLeft = false; break;
-            case 'KeyD': moveRight = false; break;
-        }
-    }
-
-    function onMouseMove(event) {
-        const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
-        const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
-
-        rotationY -= movementX * 0.002;
-        rotationX -= movementY * 0.002;
-
-        rotationX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotationX));
-    }
-
     function animate() {
+        // If we are not presenting, move the camera a little to make the effect visible
         if (!renderer.xr.isPresenting) {
-            const delta = clock.getDelta();
-
-            velocity.x -= velocity.x * 10.0 * delta;
-            velocity.z -= velocity.z * 10.0 * delta;
-
-            if (moveForward) velocity.z -= 400.0 * delta;
-            if (moveBackward) velocity.z += 400.0 * delta;
-            if (moveLeft) velocity.x -= 400.0 * delta;
-            if (moveRight) velocity.x += 400.0 * delta;
-
-            const direction = new THREE.Vector3();
-            direction.z = velocity.z * delta;
-            direction.x = velocity.x * delta;
-
-            camera.rotation.x = rotationX;
-            camera.rotation.y = rotationY;
-            camera.translateX(direction.x);
-            camera.translateZ(direction.z);
+            const time = clock.getElapsedTime();
+            sphere.rotation.y += 0.001;
         }
 
+        controls.update(); // Update OrbitControls
         renderer.render(scene, camera);
     }
+
+    renderer.setAnimationLoop(animate);
+
 </script>
