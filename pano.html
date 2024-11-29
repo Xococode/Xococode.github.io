@@ -1,169 +1,128 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <title>three.js vr - panorama with depth</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            font-family: sans-serif;
+<script type="module">
+    import * as THREE from 'three';
+    import { VRButton } from 'three/addons/webxr/VRButton.js';
+
+    let camera, scene, renderer, sphere, clock;
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let rotationX = 0, rotationY = 0;
+    let velocity = new THREE.Vector3();
+
+    init();
+
+    function init() {
+        const container = document.getElementById('container');
+
+        clock = new THREE.Clock();
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x101010);
+
+        const light = new THREE.AmbientLight(0xffffff, 3);
+        scene.add(light);
+
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
+        scene.add(camera);
+
+        const panoSphereGeo = new THREE.SphereGeometry(6, 256, 256);
+        const panoSphereMat = new THREE.MeshStandardMaterial({
+            side: THREE.BackSide,
+            displacementScale: -4.0
+        });
+
+        sphere = new THREE.Mesh(panoSphereGeo, panoSphereMat);
+
+        const manager = new THREE.LoadingManager();
+        const loader = new THREE.TextureLoader(manager);
+
+        loader.load('https://threejs.org/examples/textures/kandao3.jpg', function (texture) {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.minFilter = THREE.NearestFilter;
+            texture.generateMipmaps = false;
+            sphere.material.map = texture;
+        });
+
+        loader.load('https://threejs.org/examples/textures/kandao3_depthmap.jpg', function (depth) {
+            depth.minFilter = THREE.NearestFilter;
+            depth.generateMipmaps = false;
+            sphere.material.displacementMap = depth;
+        });
+
+        manager.onLoad = function () {
+            scene.add(sphere);
+        };
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setAnimationLoop(animate);
+        renderer.xr.enabled = true;
+        renderer.xr.setReferenceSpaceType('local');
+        container.appendChild(renderer.domElement);
+
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        window.addEventListener('resize', onWindowResize);
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+        container.addEventListener('mousemove', onMouseMove);
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function onKeyDown(event) {
+        switch (event.code) {
+            case 'KeyW': moveForward = true; break;
+            case 'KeyS': moveBackward = true; break;
+            case 'KeyA': moveLeft = true; break;
+            case 'KeyD': moveRight = true; break;
         }
-        #container {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
+    }
+
+    function onKeyUp(event) {
+        switch (event.code) {
+            case 'KeyW': moveForward = false; break;
+            case 'KeyS': moveBackward = false; break;
+            case 'KeyA': moveLeft = false; break;
+            case 'KeyD': moveRight = false; break;
         }
-        #info {
-            position: absolute;
-            top: 10px;
-            width: 100%;
-            text-align: center;
-            z-index: 100;
-            color: white;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            line-height: 24px;
-            pointer-events: none;
-        }
-        a {
-            color: #0078ff;
-        }
-    </style>
-</head>
-<body>
-    <div id="container"></div>
+    }
 
-    <div id="info">
-        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - Panorama con Profundidad<br />
-        Creado por <a href="https://orfleisher.com" target="_blank" rel="noopener">@juniorxsound</a>. Panorama de <a href="https://krpano.com/examples/?depthmap" target="_blank" rel="noopener">krpano</a>.
-    </div>
+    function onMouseMove(event) {
+        const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+        const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 
-    <!-- Import Map -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
-            }
-        }
-    </script>
+        rotationY -= movementX * 0.002;
+        rotationX -= movementY * 0.002;
 
-    <script type="module">
+        rotationX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, rotationX));
+    }
 
-        import * as THREE from 'three';
-        import { VRButton } from 'three/addons/webxr/VRButton.js';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    function animate() {
+        if (!renderer.xr.isPresenting) {
+            const delta = clock.getDelta();
 
-        let camera, scene, renderer, sphere, clock, controls;
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
 
-        init();
+            if (moveForward) velocity.z -= 400.0 * delta;
+            if (moveBackward) velocity.z += 400.0 * delta;
+            if (moveLeft) velocity.x -= 400.0 * delta;
+            if (moveRight) velocity.x += 400.0 * delta;
 
-        function init() {
-            const container = document.getElementById('container');
+            const direction = new THREE.Vector3();
+            direction.z = velocity.z * delta;
+            direction.x = velocity.x * delta;
 
-            clock = new THREE.Clock();
-
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x101010);
-
-            const light = new THREE.AmbientLight(0xffffff, 3);
-            scene.add(light);
-
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-            camera.position.set(0, 0, 0); // Aseguramos que la cámara esté en el centro
-            scene.add(camera);
-
-            // Crear la geometría de la esfera panorámica
-            const panoSphereGeo = new THREE.SphereGeometry(6, 256, 256);
-            panoSphereGeo.scale(-1, 1, 1); // Invertir la geometría para mirar desde el interior
-
-            // Crear el material de la esfera panorámica
-            const panoSphereMat = new THREE.MeshStandardMaterial({
-                side: THREE.BackSide,
-                displacementScale: -4.0
-            });
-
-            // Crear la malla de la esfera panorámica
-            sphere = new THREE.Mesh(panoSphereGeo, panoSphereMat);
-
-            // Cargar y asignar la textura y el mapa de profundidad
-            const manager = new THREE.LoadingManager();
-            const loader = new THREE.TextureLoader(manager);
-
-            loader.load('https://threejs.org/examples/textures/kandao3.jpg', function (texture) {
-                texture.colorSpace = THREE.SRGBColorSpace;
-                texture.minFilter = THREE.NearestFilter;
-                texture.generateMipmaps = false;
-                sphere.material.map = texture;
-            });
-
-            loader.load('https://threejs.org/examples/textures/kandao3_depthmap.jpg', function (depth) {
-                depth.minFilter = THREE.NearestFilter;
-                depth.generateMipmaps = false;
-                sphere.material.displacementMap = depth;
-            });
-
-            // Al completar la carga, añadir la esfera panorámica a la escena
-            manager.onLoad = function () {
-                scene.add(sphere);
-            };
-
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setAnimationLoop(animate);
-            renderer.xr.enabled = true;
-            renderer.xr.setReferenceSpaceType('local');
-            container.appendChild(renderer.domElement);
-
-            document.body.appendChild(VRButton.createButton(renderer));
-
-            // Configurar OrbitControls para PC
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableZoom = false; // Deshabilitar zoom
-            controls.enablePan = false;  // Deshabilitar paneo
-            controls.enableDamping = true; // Activar damping para suavizar la navegación
-            controls.dampingFactor = 0.05;
-            controls.rotateSpeed = 0.1;
-
-            // Limitar los ángulos de rotación para evitar giros extremos
-            controls.minPolarAngle = 0; // No limitar en vertical
-            controls.maxPolarAngle = Math.PI; // No limitar en vertical
-
-            // Asegurar que los controles no afecten al modo VR
-            renderer.xr.addEventListener('sessionstart', () => {
-                controls.enabled = false;
-            });
-            renderer.xr.addEventListener('sessionend', () => {
-                controls.enabled = true;
-            });
-
-            // Manejar el redimensionamiento de la ventana
-            window.addEventListener('resize', onWindowResize);
+            camera.rotation.x = rotationX;
+            camera.rotation.y = rotationY;
+            camera.translateX(direction.x);
+            camera.translateZ(direction.z);
         }
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function animate() {
-            // Si no estamos en VR, permitimos que los controles actualicen la cámara
-            if (!renderer.xr.isPresenting) {
-                controls.update();
-            }
-
-            // Animación adicional si es necesario
-            // Por ejemplo, rotar la esfera lentamente
-            const time = clock.getElapsedTime();
-            sphere.rotation.y += 0.001; // Rotación lenta de la esfera
-
-            renderer.render(scene, camera);
-        }
-
-    </script>
-</body>
-</html>
+        renderer.render(scene, camera);
+    }
+</script>
