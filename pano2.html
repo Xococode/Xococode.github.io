@@ -1,147 +1,36 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
-    <title>Reproductor de Video VR con Navegación PC</title>
+    <title>three.js vr - panorama with depth and PC navigation</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <style>
         body {
             margin: 0;
-            touch-action: none;
-            background-color: #000;
             overflow: hidden;
-            font-family: Arial, sans-serif;
+            font-family: sans-serif;
+            background-color: #000;
         }
-
         #container {
             width: 100%;
             height: 100%;
             overflow: hidden;
+            position: relative;
         }
-
-        /* Contenedores de controles */
-        #controls {
+        #info {
             position: absolute;
-            bottom: 20px;
-            left: 20px;
-            z-index: 3;
-            pointer-events: auto;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            opacity: 1;
-            transition: opacity 0.5s;
-        }
-
-        .control-button {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background-color: rgba(255, 255, 255, 0.6);
-            border: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            transition: background-color 0.3s, transform 0.2s;
-        }
-
-        .control-button:hover {
-            background-color: rgba(255, 255, 255, 0.9);
-            transform: scale(1.1);
-        }
-
-        .control-icon {
-            width: 20px;
-            height: 20px;
-            fill: #333;
-        }
-
-        /* Barra de progreso */
-        #progress-container {
-            width: 200px;
-            z-index: 3;
-            pointer-events: auto;
-            display: flex;
-            align-items: center;
-        }
-
-        #progress {
+            top: 10px;
             width: 100%;
-            -webkit-appearance: none;
-            appearance: none;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: 2px;
-            outline: none;
-            cursor: pointer;
+            text-align: center;
+            z-index: 100;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 24px;
+            pointer-events: none;
         }
-
-        #progress::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 10px;
-            height: 10px;
-            background: #fff;
-            border: 2px solid #333;
-            border-radius: 50%;
-            cursor: pointer;
-            margin-top: -3px;
-        }
-
-        #progress::-moz-range-thumb {
-            width: 10px;
-            height: 10px;
-            background: #fff;
-            border: 2px solid #333;
-            border-radius: 50%;
-            cursor: pointer;
-        }
-
-        /* Controles de volumen */
-        #volume-container {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-
-        #volume-container.visible {
-            opacity: 1;
-        }
-
-        #volume {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 80px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: 2px;
-            outline: none;
-            cursor: pointer;
-        }
-
-        #volume::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 10px;
-            height: 10px;
-            background: #fff;
-            border: 2px solid #333;
-            border-radius: 50%;
-            cursor: pointer;
-            margin-top: -3px;
-        }
-
-        #volume::-moz-range-thumb {
-            width: 10px;
-            height: 10px;
-            background: #fff;
-            border: 2px solid #333;
-            border-radius: 50%;
-            cursor: pointer;
+        a {
+            color: #0078ff;
         }
 
         /* Tooltip */
@@ -165,8 +54,47 @@
             opacity: 1;
         }
 
-        /* Botón de toggle */
-        #toggle-controls {
+        /* Controles de navegación para PC */
+        #navigation-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 3;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            opacity: 1;
+            transition: opacity 0.5s;
+        }
+
+        .nav-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.6);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        .nav-button:hover {
+            background-color: rgba(255, 255, 255, 0.9);
+            transform: scale(1.1);
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+            fill: #333;
+        }
+
+        /* Botón para ocultar/mostrar controles */
+        #toggle-navigation {
             position: absolute;
             bottom: 80px; /* Ajustado para estar ligeramente por encima de los controles */
             left: 20px;
@@ -185,43 +113,47 @@
             transition: background-color 0.3s, transform 0.2s;
         }
 
-        #toggle-controls:hover {
+        #toggle-navigation:hover {
             background-color: rgba(255, 255, 255, 0.9);
             transform: scale(1.1);
         }
 
         /* Auto ocultar controles principales */
-        #controls.hidden {
+        #navigation-controls.hidden {
             opacity: 0;
             pointer-events: none;
         }
-
     </style>
 </head>
 <body>
     <div id="container"></div>
 
-    <!-- Controles principales -->
-    <div id="controls">
-        <div id="progress-container" class="hidden">
-            <input type="range" id="progress" value="0" min="0" max="100">
-        </div>
-        <button class="control-button" id="play-pause" aria-label="Reproducir">
+    <div id="info">
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> VR - panorama with depth and PC navigation<br />
+        Created by <a href="https://orfleisher.com" target="_blank" rel="noopener">@juniorxsound</a>. Panorama from <a href="https://krpano.com/examples/?depthmap" target="_blank" rel="noopener">krpano</a>.
+    </div>
+
+    <!-- Tooltip -->
+    <div class="tooltip" id="tooltip">Tooltip</div>
+
+    <!-- Controles de navegación para PC -->
+    <div id="navigation-controls">
+        <button class="nav-button" id="play-pause" aria-label="Reproducir">
             <!-- Icono Play SVG -->
-            <svg class="control-icon" viewBox="0 0 24 24">
+            <svg class="nav-icon" viewBox="0 0 24 24">
                 <polygon points="5,3 19,12 5,21" />
             </svg>
         </button>
-        <button class="control-button" id="fullscreen" aria-label="Pantalla completa">
+        <button class="nav-button" id="fullscreen" aria-label="Pantalla completa">
             <!-- Icono Fullscreen SVG -->
-            <svg class="control-icon" viewBox="0 0 24 24">
+            <svg class="nav-icon" viewBox="0 0 24 24">
                 <path d="M7 14H5v5h5v-2H7v-3zM5 5h5v2H7v3h3v2H5V5zM19 5h-3v2h3v3h2V5h-2zM19 14h-3v3h2v2h3v-5z"></path>
             </svg>
         </button>
         <div id="volume-container">
-            <button class="control-button" id="volume-icon" aria-label="Control de volumen">
+            <button class="nav-button" id="volume-icon" aria-label="Control de volumen">
                 <!-- Icono Volumen SVG -->
-                <svg class="control-icon" viewBox="0 0 24 24">
+                <svg class="nav-icon" viewBox="0 0 24 24">
                     <!-- Icono de volumen (muted o unmuted según estado) -->
                     <path d="M3 10v4h4l5 5V5L7 10H3z"></path>
                     <path d="M14.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.74 2.5-2.26 2.5-4.02z"></path>
@@ -232,22 +164,19 @@
     </div>
 
     <!-- Botón para ocultar/mostrar controles -->
-    <button id="toggle-controls" aria-label="Ocultar controles">
+    <button id="toggle-navigation" aria-label="Ocultar controles">
         <!-- Icono Toggle SVG (Ojo) -->
-        <svg class="control-icon" viewBox="0 0 24 24">
+        <svg class="nav-icon" viewBox="0 0 24 24">
             <path d="M12 4.5C7.305 4.5 3.023 7.757 1.5 12c1.523 4.243 5.805 7.5 10.5 7.5s9.977-3.257 11.5-7.5c-1.523-4.243-5.805-7.5-10.5-7.5zm0 12c-2.485 0-4.5-2.015-4.5-4.5S9.515 7.5 12 7.5s4.5 2.015 4.5 4.5-2.015 4.5-4.5 4.5z"/>
             <circle cx="12" cy="12" r="1.5"/>
         </svg>
     </button>
 
-    <div class="tooltip" id="tooltip">Tooltip</div>
-
     <video id="video" loop muted crossOrigin="anonymous" playsinline style="display:none">
-        <source src="https://xococode.github.io/MaryOculus.webm" type="video/webm">
-        <source src="https://xococode.github.io/MaryOculus.mp4" type="video/mp4">
+        <source src="https://threejs.org/examples/textures/kandao3.mp4" type="video/mp4">
+        <source src="https://threejs.org/examples/textures/kandao3.webm" type="video/webm">
     </video>
 
-    <!-- Import Map para OrbitControls -->
     <script type="importmap">
         {
             "imports": {
@@ -258,15 +187,14 @@
     </script>
 
     <script type="module">
+
         import * as THREE from 'three';
         import { VRButton } from 'three/addons/webxr/VRButton.js';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        let camera, scene, renderer, sphere, clock, controls;
+        let camera, scene, renderer, sphere, clock, video;
         let isUserInteracting = false;
-        let lon = 0, lat = 0;
-        let phi = 0, theta = 0;
         let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
+        let lon = 0, lat = 0;
         let onPointerDownLon = 0, onPointerDownLat = 0;
 
         let controlsTimeout;
@@ -276,7 +204,7 @@
 
         function init() {
             const container = document.getElementById('container');
-            const video = document.getElementById('video');
+            video = document.getElementById('video');
 
             clock = new THREE.Clock();
 
@@ -289,58 +217,59 @@
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
             scene.add(camera);
 
-            // Crear la geometría de la esfera panorámica
-            const panoSphereGeo = new THREE.SphereGeometry(500, 60, 40);
-            panoSphereGeo.scale(-1, 1, 1); // Invertir la esfera para visualizar el interior
+            // Create the panoramic sphere geometry
+            const panoSphereGeo = new THREE.SphereGeometry(6, 256, 256);
 
-            // Crear el material de la esfera panorámica
-            const panoSphereMat = new THREE.MeshBasicMaterial({
-                map: new THREE.VideoTexture(video),
-                side: THREE.BackSide
+            // Create the panoramic sphere material
+            const panoSphereMat = new THREE.MeshStandardMaterial({
+                side: THREE.BackSide,
+                displacementScale: -4.0
             });
 
-            // Crear la malla de la esfera panorámica
+            // Create the panoramic sphere mesh
             sphere = new THREE.Mesh(panoSphereGeo, panoSphereMat);
-            sphere.rotation.y = -Math.PI / 2;
-            scene.add(sphere);
 
-            // Renderizador
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            // Load and assign the texture and depth map
+            const manager = new THREE.LoadingManager();
+            const loader = new THREE.TextureLoader(manager);
+
+            loader.load('https://threejs.org/examples/textures/kandao3.jpg', function (texture) {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                texture.minFilter = THREE.NearestFilter;
+                texture.generateMipmaps = false;
+                sphere.material.map = texture;
+            });
+
+            loader.load('https://threejs.org/examples/textures/kandao3_depthmap.jpg', function (depth) {
+                depth.minFilter = THREE.NearestFilter;
+                depth.generateMipmaps = false;
+                sphere.material.displacementMap = depth;
+            });
+
+            // On load complete add the panoramic sphere to the scene
+            manager.onLoad = function () {
+                scene.add(sphere);
+            };
+
+            renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setAnimationLoop(animate);
             renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local');
             container.appendChild(renderer.domElement);
 
-            // Añadir VRButton
             document.body.appendChild(VRButton.createButton(renderer));
 
-            // Añadir OrbitControls para navegación en PC
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.enableZoom = false;
-            controls.enablePan = false;
-            controls.rotateSpeed = 0.5;
-            controls.enableKeys = true;
-
-            // Desactivar OrbitControls cuando esté en VR
-            renderer.xr.addEventListener('sessionstart', () => {
-                controls.enabled = false;
-            });
-
-            renderer.xr.addEventListener('sessionend', () => {
-                controls.enabled = true;
-            });
-
-            // Event listeners para navegación con mouse
-            document.addEventListener('pointerdown', onPointerDown);
-            document.addEventListener('pointermove', onPointerMove);
-            document.addEventListener('pointerup', onPointerUp);
-            document.addEventListener('wheel', onDocumentMouseWheel);
-            document.addEventListener('keydown', onKeyDown);
-
+            // Event listeners for window resize
             window.addEventListener('resize', onWindowResize);
+
+            // Event listeners for PC navigation
+            container.addEventListener('pointerdown', onPointerDown);
+            container.addEventListener('pointermove', onPointerMove);
+            container.addEventListener('pointerup', onPointerUp);
+            container.addEventListener('wheel', onDocumentMouseWheel);
+            document.addEventListener('keydown', onKeyDown);
 
             // Controles de botones
             const playPauseButton = document.getElementById('play-pause');
@@ -387,16 +316,16 @@
             });
 
             // Botón de toggle controles
-            const toggleControlsButton = document.getElementById('toggle-controls');
+            const toggleControlsButton = document.getElementById('toggle-navigation');
             toggleControlsButton.addEventListener('click', () => {
-                const controlsDiv = document.getElementById('controls');
-                if (controlsDiv.classList.contains('hidden')) {
-                    controlsDiv.classList.remove('hidden');
+                const controls = document.getElementById('navigation-controls');
+                if (controls.classList.contains('hidden')) {
+                    controls.classList.remove('hidden');
                     controlsManuallyHidden = false; // Reiniciar estado manual
                     toggleControlsButton.setAttribute('aria-label', 'Ocultar controles');
                     showControls();
                 } else {
-                    controlsDiv.classList.add('hidden');
+                    controls.classList.add('hidden');
                     controlsManuallyHidden = true; // Indicar que los controles están ocultos manualmente
                     toggleControlsButton.setAttribute('aria-label', 'Mostrar controles');
                 }
@@ -455,10 +384,15 @@
         }
 
         function animate() {
-            // Actualizar OrbitControls si están habilitados
-            if (controls.enabled) {
-                controls.update();
-            }
+            lat = Math.max(-85, Math.min(85, lat));
+            phi = THREE.MathUtils.degToRad(90 - lat);
+            theta = THREE.MathUtils.degToRad(lon);
+
+            camera.position.x = 6 * Math.sin(phi) * Math.cos(theta);
+            camera.position.y = 6 * Math.cos(phi);
+            camera.position.z = 6 * Math.sin(phi) * Math.sin(theta);
+
+            camera.lookAt(0, 0, 0);
 
             renderer.render(scene, camera);
         }
@@ -466,7 +400,6 @@
         // Funciones de controles mejorados
 
         function togglePlayPause() {
-            const video = document.getElementById('video');
             if (video.paused) {
                 video.play();
                 showTooltip('Reproduciendo');
@@ -488,8 +421,7 @@
         }
 
         function updateVolumeIcon() {
-            const volumeIcon = document.getElementById('volume-icon').querySelector('.control-icon');
-            const video = document.getElementById('video');
+            const volumeIcon = document.getElementById('volume-icon').querySelector('.nav-icon');
             if (video.muted || video.volume === 0) {
                 volumeIcon.innerHTML = `
                     <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.74 2.5-2.26 2.5-4.02z"></path>
@@ -505,8 +437,7 @@
         }
 
         function updatePlayPauseIcon() {
-            const playPauseButton = document.getElementById('play-pause').querySelector('.control-icon');
-            const video = document.getElementById('video');
+            const playPauseButton = document.getElementById('play-pause').querySelector('.nav-icon');
             if (video.paused) {
                 // Icono Play
                 playPauseButton.innerHTML = `
@@ -533,25 +464,17 @@
         }
 
         function showControls() {
-            const controlsDiv = document.getElementById('controls');
-            const progressContainer = document.getElementById('progress-container');
-            const volumeContainer = document.getElementById('volume-container');
+            const controls = document.getElementById('navigation-controls');
             if (!controlsManuallyHidden) { // Solo mostrar controles si no están ocultos manualmente
-                controlsDiv.classList.remove('hidden');
-                progressContainer.classList.remove('hidden');
-                volumeContainer.classList.add('visible');
+                controls.classList.remove('hidden');
                 clearTimeout(controlsTimeout);
                 hideControlsAfterDelay();
             }
         }
 
         function hideControls() {
-            const controlsDiv = document.getElementById('controls');
-            const progressContainer = document.getElementById('progress-container');
-            const volumeContainer = document.getElementById('volume-container');
-            controlsDiv.classList.add('hidden');
-            progressContainer.classList.add('hidden');
-            volumeContainer.classList.remove('visible');
+            const controls = document.getElementById('navigation-controls');
+            controls.classList.add('hidden');
         }
 
         function hideControlsAfterDelay() {
@@ -564,7 +487,6 @@
         }
 
         function onKeyDown(event) {
-            const video = document.getElementById('video');
             switch (event.key) {
                 case ' ':
                     event.preventDefault();
