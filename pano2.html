@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <title>Reproductor de Video VR con Navegación PC</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            touch-action: none;
+            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        #container {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* Contenedores de controles */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 3;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            opacity: 1;
+            transition: opacity 0.5s;
+        }
+
+        .control-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.6);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        .control-button:hover {
+            background-color: rgba(255, 255, 255, 0.9);
+            transform: scale(1.1);
+        }
+
+        .control-icon {
+            width: 20px;
+            height: 20px;
+            fill: #333;
+        }
+
+        /* Barra de progreso */
+        #progress-container {
+            width: 200px;
+            z-index: 3;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+        }
+
+        #progress {
+            width: 100%;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        #progress::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 50%;
+            cursor: pointer;
+            margin-top: -3px;
+        }
+
+        #progress::-moz-range-thumb {
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        /* Controles de volumen */
+        #volume-container {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #volume-container.visible {
+            opacity: 1;
+        }
+
+        #volume {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 80px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        #volume::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 50%;
+            cursor: pointer;
+            margin-top: -3px;
+        }
+
+        #volume::-moz-range-thumb {
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.7);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            z-index: 4;
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+        }
+
+        /* Botón de toggle */
+        #toggle-controls {
+            position: absolute;
+            bottom: 80px; /* Ajustado para estar ligeramente por encima de los controles */
+            left: 20px;
+            z-index: 4;
+            pointer-events: auto;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.6);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        #toggle-controls:hover {
+            background-color: rgba(255, 255, 255, 0.9);
+            transform: scale(1.1);
+        }
+
+        /* Auto ocultar controles principales */
+        #controls.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+
+    <!-- Controles principales -->
+    <div id="controls">
+        <div id="progress-container" class="hidden">
+            <input type="range" id="progress" value="0" min="0" max="100">
+        </div>
+        <button class="control-button" id="play-pause" aria-label="Reproducir">
+            <!-- Icono Play SVG -->
+            <svg class="control-icon" viewBox="0 0 24 24">
+                <polygon points="5,3 19,12 5,21" />
+            </svg>
+        </button>
+        <button class="control-button" id="fullscreen" aria-label="Pantalla completa">
+            <!-- Icono Fullscreen SVG -->
+            <svg class="control-icon" viewBox="0 0 24 24">
+                <path d="M7 14H5v5h5v-2H7v-3zM5 5h5v2H7v3h3v2H5V5zM19 5h-3v2h3v3h2V5h-2zM19 14h-3v3h2v2h3v-5z"></path>
+            </svg>
+        </button>
+        <div id="volume-container">
+            <button class="control-button" id="volume-icon" aria-label="Control de volumen">
+                <!-- Icono Volumen SVG -->
+                <svg class="control-icon" viewBox="0 0 24 24">
+                    <!-- Icono de volumen (muted o unmuted según estado) -->
+                    <path d="M3 10v4h4l5 5V5L7 10H3z"></path>
+                    <path d="M14.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.74 2.5-2.26 2.5-4.02z"></path>
+                </svg>
+            </button>
+            <input type="range" id="volume" value="100" min="0" max="100">
+        </div>
+    </div>
+
+    <!-- Botón para ocultar/mostrar controles -->
+    <button id="toggle-controls" aria-label="Ocultar controles">
+        <!-- Icono Toggle SVG (Ojo) -->
+        <svg class="control-icon" viewBox="0 0 24 24">
+            <path d="M12 4.5C7.305 4.5 3.023 7.757 1.5 12c1.523 4.243 5.805 7.5 10.5 7.5s9.977-3.257 11.5-7.5c-1.523-4.243-5.805-7.5-10.5-7.5zm0 12c-2.485 0-4.5-2.015-4.5-4.5S9.515 7.5 12 7.5s4.5 2.015 4.5 4.5-2.015 4.5-4.5 4.5z"/>
+            <circle cx="12" cy="12" r="1.5"/>
+        </svg>
+    </button>
+
+    <div class="tooltip" id="tooltip">Tooltip</div>
+
+    <video id="video" loop muted crossOrigin="anonymous" playsinline style="display:none">
+        <source src="https://xococode.github.io/MaryOculus.webm" type="video/webm">
+        <source src="https://xococode.github.io/MaryOculus.mp4" type="video/mp4">
+    </video>
+
+    <!-- Import Map para OrbitControls -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let camera, scene, renderer, sphere, clock, controls;
+        let isUserInteracting = false;
+        let lon = 0, lat = 0;
+        let phi = 0, theta = 0;
+        let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
+        let onPointerDownLon = 0, onPointerDownLat = 0;
+
+        let controlsTimeout;
+        let controlsManuallyHidden = false; // Variable para controlar si los controles están ocultos manualmente
+
+        init();
+
+        function init() {
+            const container = document.getElementById('container');
+            const video = document.getElementById('video');
+
+            clock = new THREE.Clock();
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x101010);
+
+            const light = new THREE.AmbientLight(0xffffff, 3);
+            scene.add(light);
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
+            scene.add(camera);
+
+            // Crear la geometría de la esfera panorámica
+            const panoSphereGeo = new THREE.SphereGeometry(500, 60, 40);
+            panoSphereGeo.scale(-1, 1, 1); // Invertir la esfera para visualizar el interior
+
+            // Crear el material de la esfera panorámica
+            const panoSphereMat = new THREE.MeshBasicMaterial({
+                map: new THREE.VideoTexture(video),
+                side: THREE.BackSide
+            });
+
+            // Crear la malla de la esfera panorámica
+            sphere = new THREE.Mesh(panoSphereGeo, panoSphereMat);
+            sphere.rotation.y = -Math.PI / 2;
+            scene.add(sphere);
+
+            // Renderizador
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            renderer.xr.setReferenceSpaceType('local');
+            container.appendChild(renderer.domElement);
+
+            // Añadir VRButton
+            document.body.appendChild(VRButton.createButton(renderer));
+
+            // Añadir OrbitControls para navegación en PC
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = false;
+            controls.enablePan = false;
+            controls.rotateSpeed = 0.5;
+            controls.enableKeys = true;
+
+            // Desactivar OrbitControls cuando esté en VR
+            renderer.xr.addEventListener('sessionstart', () => {
+                controls.enabled = false;
+            });
+
+            renderer.xr.addEventListener('sessionend', () => {
+                controls.enabled = true;
+            });
+
+            // Event listeners para navegación con mouse
+            document.addEventListener('pointerdown', onPointerDown);
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+            document.addEventListener('wheel', onDocumentMouseWheel);
+            document.addEventListener('keydown', onKeyDown);
+
+            window.addEventListener('resize', onWindowResize);
+
+            // Controles de botones
+            const playPauseButton = document.getElementById('play-pause');
+            playPauseButton.addEventListener('click', () => {
+                togglePlayPause();
+            });
+
+            const fullscreenButton = document.getElementById('fullscreen');
+            fullscreenButton.addEventListener('click', () => {
+                toggleFullScreen();
+                showTooltip('Pantalla Completa');
+                showControls();
+            });
+
+            // Barra de progreso
+            const progress = document.getElementById('progress');
+            progress.addEventListener('input', () => {
+                const seekTime = video.duration * (progress.value / 100);
+                video.currentTime = seekTime;
+            });
+
+            video.addEventListener('timeupdate', () => {
+                if (!progress.dragging) {
+                    const value = (video.currentTime / video.duration) * 100;
+                    progress.value = value;
+                }
+            });
+
+            // Control de volumen
+            const volume = document.getElementById('volume');
+            volume.addEventListener('input', () => {
+                video.volume = volume.value / 100;
+                video.muted = volume.value === "0";
+                updateVolumeIcon();
+                showControls();
+            });
+
+            const volumeIconButton = document.getElementById('volume-icon');
+            volumeIconButton.addEventListener('click', () => {
+                video.muted = !video.muted;
+                updateVolumeIcon();
+                showTooltip(video.muted ? 'Silenciado' : 'Sonido Activado');
+                showControls();
+            });
+
+            // Botón de toggle controles
+            const toggleControlsButton = document.getElementById('toggle-controls');
+            toggleControlsButton.addEventListener('click', () => {
+                const controlsDiv = document.getElementById('controls');
+                if (controlsDiv.classList.contains('hidden')) {
+                    controlsDiv.classList.remove('hidden');
+                    controlsManuallyHidden = false; // Reiniciar estado manual
+                    toggleControlsButton.setAttribute('aria-label', 'Ocultar controles');
+                    showControls();
+                } else {
+                    controlsDiv.classList.add('hidden');
+                    controlsManuallyHidden = true; // Indicar que los controles están ocultos manualmente
+                    toggleControlsButton.setAttribute('aria-label', 'Mostrar controles');
+                }
+            });
+
+            // Iniciar reproducción al hacer clic en el contenedor
+            container.addEventListener('click', function () {
+                if (video.paused) {
+                    togglePlayPause();
+                }
+            });
+
+            // Mostrar controles al interactuar
+            container.addEventListener('mousemove', showControls);
+            container.addEventListener('touchstart', showControls);
+
+            // Escuchar eventos de play y pause para actualizar el icono del botón
+            video.addEventListener('play', updatePlayPauseIcon);
+            video.addEventListener('pause', updatePlayPauseIcon);
+
+            // Ocultar controles después de inactividad
+            hideControlsAfterDelay();
+        }
+
+        function onPointerDown(event) {
+            isUserInteracting = true;
+            onPointerDownPointerX = event.clientX;
+            onPointerDownPointerY = event.clientY;
+            onPointerDownLon = lon;
+            onPointerDownLat = lat;
+            showControls();
+        }
+
+        function onPointerMove(event) {
+            if (isUserInteracting === true) {
+                lon = (onPointerDownPointerX - event.clientX) * 0.1 + onPointerDownLon;
+                lat = (onPointerDownPointerY - event.clientY) * 0.1 + onPointerDownLat;
+            }
+        }
+
+        function onPointerUp() {
+            isUserInteracting = false;
+            hideControlsAfterDelay();
+        }
+
+        function onDocumentMouseWheel(event) {
+            camera.fov += event.deltaY * 0.05;
+            camera.fov = Math.max(10, Math.min(100, camera.fov));
+            camera.updateProjectionMatrix();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            // Actualizar OrbitControls si están habilitados
+            if (controls.enabled) {
+                controls.update();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Funciones de controles mejorados
+
+        function togglePlayPause() {
+            const video = document.getElementById('video');
+            if (video.paused) {
+                video.play();
+                showTooltip('Reproduciendo');
+            } else {
+                video.pause();
+                showTooltip('Pausado');
+            }
+            showControls();
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        function updateVolumeIcon() {
+            const volumeIcon = document.getElementById('volume-icon').querySelector('.control-icon');
+            const video = document.getElementById('video');
+            if (video.muted || video.volume === 0) {
+                volumeIcon.innerHTML = `
+                    <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.74 2.5-2.26 2.5-4.02z"></path>
+                    <path d="M19 12c0 2.76-1.79 5.19-4.42 6.32l1.42 1.42C19.43 17.74 21 15.31 21 12s-1.57-5.74-4.0-7.74l-1.42 1.42C17.21 6.81 19 9.24 19 12z"></path>
+                    <path d="M3 9v6h4l5 5V4L7 9H3z"></path>
+                `;
+            } else {
+                volumeIcon.innerHTML = `
+                    <path d="M3 10v4h4l5 5V5L7 10H3z"></path>
+                    <path d="M14.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.74 2.5-2.26 2.5-4.02z"></path>
+                `;
+            }
+        }
+
+        function updatePlayPauseIcon() {
+            const playPauseButton = document.getElementById('play-pause').querySelector('.control-icon');
+            const video = document.getElementById('video');
+            if (video.paused) {
+                // Icono Play
+                playPauseButton.innerHTML = `
+                    <polygon points="5,3 19,12 5,21" />
+                `;
+                document.getElementById('play-pause').setAttribute('aria-label', 'Reproducir');
+            } else {
+                // Icono Pausa
+                playPauseButton.innerHTML = `
+                    <rect x="6" y="4" width="4" height="16"></rect>
+                    <rect x="14" y="4" width="4" height="16"></rect>
+                `;
+                document.getElementById('play-pause').setAttribute('aria-label', 'Pausar');
+            }
+        }
+
+        function showTooltip(message) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.textContent = message;
+            tooltip.classList.add('visible');
+            setTimeout(() => {
+                tooltip.classList.remove('visible');
+            }, 2000);
+        }
+
+        function showControls() {
+            const controlsDiv = document.getElementById('controls');
+            const progressContainer = document.getElementById('progress-container');
+            const volumeContainer = document.getElementById('volume-container');
+            if (!controlsManuallyHidden) { // Solo mostrar controles si no están ocultos manualmente
+                controlsDiv.classList.remove('hidden');
+                progressContainer.classList.remove('hidden');
+                volumeContainer.classList.add('visible');
+                clearTimeout(controlsTimeout);
+                hideControlsAfterDelay();
+            }
+        }
+
+        function hideControls() {
+            const controlsDiv = document.getElementById('controls');
+            const progressContainer = document.getElementById('progress-container');
+            const volumeContainer = document.getElementById('volume-container');
+            controlsDiv.classList.add('hidden');
+            progressContainer.classList.add('hidden');
+            volumeContainer.classList.remove('visible');
+        }
+
+        function hideControlsAfterDelay() {
+            clearTimeout(controlsTimeout);
+            controlsTimeout = setTimeout(() => {
+                if (!controlsManuallyHidden) { // Solo ocultar controles si no han sido ocultados manualmente
+                    hideControls();
+                }
+            }, 3000); // Ocultar después de 3 segundos de inactividad
+        }
+
+        function onKeyDown(event) {
+            const video = document.getElementById('video');
+            switch (event.key) {
+                case ' ':
+                    event.preventDefault();
+                    togglePlayPause();
+                    break;
+                case 'm':
+                case 'M':
+                    video.muted = !video.muted;
+                    updateVolumeIcon();
+                    showTooltip(video.muted ? 'Silenciado' : 'Sonido Activado');
+                    showControls();
+                    break;
+                case 'f':
+                case 'F':
+                    toggleFullScreen();
+                    showTooltip('Pantalla Completa');
+                    showControls();
+                    break;
+                case 'ArrowRight':
+                    video.currentTime += 5;
+                    showControls();
+                    break;
+                case 'ArrowLeft':
+                    video.currentTime -= 5;
+                    showControls();
+                    break;
+                case 'ArrowUp':
+                    video.volume = Math.min(1, video.volume + 0.1);
+                    document.getElementById('volume').value = video.volume * 100;
+                    showControls();
+                    break;
+                case 'ArrowDown':
+                    video.volume = Math.max(0, video.volume - 0.1);
+                    document.getElementById('volume').value = video.volume * 100;
+                    showControls();
+                    break;
+            }
+        }
+    </script>
+</body>
+</html>
