@@ -1,7 +1,7 @@
 <script type="module">
-    import * as THREE from 'three';
-    import { VRButton } from 'three/addons/webxr/VRButton.js';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+    import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/webxr/VRButton.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js';
 
     let camera, scene, renderer, sphere, clock, controls;
 
@@ -19,22 +19,18 @@
         scene.add(light);
 
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 2000);
-        camera.position.set(0, 1.6, 0); // Altura similar a la visión humana
+        camera.position.set(0, 1.6, 0);
         scene.add(camera);
 
-        // Create the panoramic sphere geometry
         const panoSphereGeo = new THREE.SphereGeometry(6, 256, 256);
 
-        // Create the panoramic sphere material
         const panoSphereMat = new THREE.MeshStandardMaterial({
             side: THREE.BackSide,
             displacementScale: -4.0
         });
 
-        // Create the panoramic sphere mesh
         sphere = new THREE.Mesh(panoSphereGeo, panoSphereMat);
 
-        // Load and assign the texture and depth map
         const manager = new THREE.LoadingManager();
         const loader = new THREE.TextureLoader(manager);
 
@@ -51,7 +47,6 @@
             sphere.material.displacementMap = depth;
         });
 
-        // On load complete add the panoramic sphere to the scene
         manager.onLoad = function () {
             scene.add(sphere);
         };
@@ -65,18 +60,15 @@
 
         document.body.appendChild(VRButton.createButton(renderer));
 
-        // Orbit Controls for Non-VR Mode
         controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true; // Smooth movement
+        controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.screenSpacePanning = false;
-        controls.maxDistance = 10; // Limit zoom out
-        controls.minDistance = 1;  // Limit zoom in
+        controls.maxDistance = 10;
+        controls.minDistance = 1;
 
-        // Handle window resize
         window.addEventListener('resize', onWindowResize);
 
-        // Keyboard Controls
         addKeyboardControls();
     }
 
@@ -91,9 +83,8 @@
             keys[event.key.toLowerCase()] = false;
         });
 
-        // Movement Logic
         function moveCamera(delta) {
-            const speed = 2; // Movement speed
+            const speed = 2;
             const direction = new THREE.Vector3();
 
             if (keys.w) {
@@ -128,13 +119,11 @@
     }
 
     function animate() {
-        // If we are not presenting, move the camera a little to make the effect visible
         if (!renderer.xr.isPresenting) {
-            const time = clock.getElapsedTime();
             sphere.rotation.y += 0.001;
         }
 
-        controls.update(); // Update OrbitControls
+        controls.update();
         renderer.render(scene, camera);
     }
 
